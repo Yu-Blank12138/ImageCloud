@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: ImageCloud
+  profiles:
+    active: dev
+  datasource:
+    url: "${imagecloud.mysql.url}"
+    username: "${imagecloud.mysql.username}"
+    password: "${imagecloud.mysql.password}"
+  data:
+    redis:
+      host: "${imagecloud.redis.host}"
+      port: "${imagecloud.redis.port}"
+      database: "${imagecloud.redis.database}"
+      password: "${imagecloud.redis.password}"
