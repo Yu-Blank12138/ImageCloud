@@ -7,6 +7,9 @@ spring:
     url: "${imagecloud.mysql.url}"
     username: "${imagecloud.mysql.username}"
     password: "${imagecloud.mysql.password}"
+    hikari:
+      # 数据库会话与应用服务器写入的时间统一使用 UTC。
+      connection-init-sql: "SET time_zone = '+00:00'"
   data:
     redis:
       host: "${imagecloud.redis.host}"
@@ -19,14 +22,32 @@ mybatis-plus:
   configuration:
     #驼峰映射
     map-underscore-to-camel-case: true
-    #日志打印
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 通过应用日志级别控制 SQL 输出。
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
     #逻辑删除
   global-config:
     db-config:
       logic-delete-field: isDelete
       logic-delete-value: 1
       logic-not-delete-value: 0
+
+logging:
+  level:
+    # 用户 SQL 可能携带密码哈希和账号信息。
+    com.blank.imagecloud.mapper.UserAccountMapper: "OFF"
+
+cos:
+  secret-id: "${imagecloud.cos.secret-id}"
+  secret-key: "${imagecloud.cos.secret-key}"
+  region: "${imagecloud.cos.region}"
+
+imagecloud:
+  auth:
+    jwt:
+      issuer: "${IMAGECLOUD_JWT_ISSUER:https://imagecloud.invalid}"
+      audience: "${IMAGECLOUD_JWT_AUDIENCE:imagecloud-api}"
+      access-token-ttl: "${IMAGECLOUD_JWT_ACCESS_TOKEN_TTL:30m}"
+      private-key-location: "${IMAGECLOUD_JWT_PRIVATE_KEY_LOCATION:}"
 
 # springdoc-openapi项目配置
 springdoc:

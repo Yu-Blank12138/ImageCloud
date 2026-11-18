@@ -44,6 +44,27 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- Spring Boot Validation 启动器，用于校验注册请求字段。
+             官方文档 https://docs.spring.io/spring-boot/3.5/reference/io/validation.html -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Spring Security Crypto 提供密码哈希与校验组件，由 Spring Boot 管理版本。
+             官方文档 https://docs.spring.io/spring-security/reference/6.5/features/authentication/password-storage.html -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- Spring Security OAuth2 JOSE 提供 RS256 JWT 签发组件。
+             官方文档 https://docs.spring.io/spring-security/reference/6.5/api/java/org/springframework/security/oauth2/jwt/NimbusJwtEncoder.html -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+
         <!-- Spring Boot AOP 启动器，提供 Spring AOP 和 AspectJ 注解支持，用于定义作用于 Spring Bean 的切面。
              官方文档 https://docs.spring.io/spring-boot/3.5/reference/features/aop.html -->
         <dependency>
@@ -75,6 +96,14 @@
             <version>3.5.18</version>
         </dependency>
 
+        <!-- MyBatis-Plus JSqlParser 模块，提供分页拦截器及分页 SQL 解析，版本与现有启动器一致。
+             官方文档 https://baomidou.com/plugins/pagination/ -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>3.5.18</version>
+        </dependency>
+
         <!-- MySQL Connector/J 是 MySQL 的 JDBC 驱动，用于在运行时从 Java 连接 MySQL。
              官方文档 https://dev.mysql.com/doc/connector-j/en/connector-j-installing-maven.html -->
         <dependency>
@@ -97,6 +126,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- 腾讯云 COS Java SDK，用于创建 COS 客户端并连接私有对象存储。
+             官方文档 https://cloud.tencent.com/document/product/436/10199 -->
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>cos_api</artifactId>
+            <version>5.6.227</version>
         </dependency>
 
         <!-- Hutool 的全量工具包，提供字符串、日期和类型转换等常用 Java 工具。

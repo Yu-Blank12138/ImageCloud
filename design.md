@@ -17,13 +17,24 @@ ImageCloud 是面向个人和团队的私有云图库。用户可以上传和查
 
 | 引入条件 | Maven 依赖 | 用途与兼容性 |
 | --- | --- | --- |
-| 实现 JWT 登录与 API 认证 | `org.springframework.boot:spring-boot-starter-oauth2-resource-server` | 复用 Spring Security 的 JWT 签发和验签组件。由 Spring Boot 3.5.16 管理版本。 |
+| 实现账号注册 | `org.springframework.security:spring-security-crypto`、`org.springframework.boot:spring-boot-starter-validation` | 使用版本化的 PBKDF2-HMAC-SHA256 密码哈希和 Jakarta Bean Validation。两项依赖均由 Spring Boot 3.5.16 管理版本。 |
+| 实现数据库分页 | `com.baomidou:mybatis-plus-jsqlparser:3.5.18` | 提供 MyBatis-Plus 分页拦截器，版本与启动器一致，适配项目 Java 17。 |
+| 实现登录与 JWT 签发 | `org.springframework.security:spring-security-oauth2-jose` | 使用 Spring Security 的 JWT 签发组件。由 Spring Boot 3.5.16 管理版本。 |
+| 实现 Bearer API 认证 | `org.springframework.boot:spring-boot-starter-oauth2-resource-server` | 接入 Spring Security 的 Bearer JWT 认证链。由 Spring Boot 3.5.16 管理版本。 |
 | 实现编辑状态推送 | `org.springframework.boot:spring-boot-starter-websocket` | 使用 Spring MVC 的 WebSocket 支持，由 Spring Boot 3.5.16 管理版本。 |
-| 实现 COS 存取与图片处理 | `com.qcloud:cos_api` | 使用官方 Java SDK 完成对象读写、签名与数据万象持久化处理。接入时固定验证过的 SDK 版本。 |
+| 接入 COS 客户端 | `com.qcloud:cos_api:5.6.227` | 按官方快速入门声明 HTTPS 客户端单例，由 Spring 在容器关闭时调用 `shutdown()`。主配置通过占位变量读取密钥和地域，开发值填写在 `application-dev.yaml` 的 `imagecloud.cos` 下。对象读写、签名与数据万象持久化处理后续通过该 SDK 实现。 |
 
 引入 COS SDK 时，用 Java 17 和现有 Spring Boot 基线验证编译与依赖解析，并验证私有桶上传、预签名下载和数据万象持久化处理。核对桶所在地域和存储桶类型对数据万象的支持。参考 [Spring Boot Starter 列表](https://docs.spring.io/spring-boot/3.5/reference/using/build-systems.html)、[COS Java SDK 快速入门](https://intl.cloud.tencent.com/zh/document/product/436/10199)、[Java SDK 图片持久化处理](https://cloud.tencent.com/document/product/436/55377) 和 [腾讯云图片基础处理](https://cloud.tencent.com/document/product/460/47483)。
 
 组件库、全局状态库和图片编辑库按实际需求评估。新增依赖前先检查 JDK、浏览器 API 和现有库是否覆盖需求，并记录依赖用途及兼容性。
+
+## 前端登录后布局
+
+登录后的页面共用顶部品牌与账号菜单、可收起的左侧导航和右侧内容区。所有用户默认进入 `/workspace` 我的图库，`/explore` 公共图库与 `/teams` 团队空间目前展示占位内容。图库搜索在功能接入前显示禁用状态。
+
+用户管理列表和详情中的时间按浏览器本地时区展示到秒，并标明时区。VIP 到期时间按本地时间输入后转换为 UTC 提交，未修改时沿用接口原值。
+
+管理员额外显示 `/admin/users` 用户管理导航。该页面提供分页列表、按账号搜索、按 ID 查询以及新增、编辑、只读详情抽屉，并保留删除确认。账号搜索区分输入草稿和已提交条件，搜索后回到第一页，翻页及写入后的刷新保留已提交条件，重置后显示全量用户。路由在进入登录后布局前确认会话，管理接口继续独立执行权限校验。移动端导航通过菜单展开，退出入口统一放在顶部账号菜单。
 
 ## 系统关系与模块职责
 
@@ -54,13 +65,15 @@ flowchart LR
 | 图片处理 | 封装 COS 和数据万象 SDK。负责对象存取、签名、处理规则转换和云端对象清理。 |
 | 编辑协作 | 管理图片编辑租约和 WebSocket 订阅。向图片管理模块提供保存所需的租约校验。 |
 
-Java 包先按技术层组织，同一层内再按业务划分，例如 `controller.auth`、`service.auth` 和 `dto.picture`。MyBatis 接口统一放在 `mapper` 及其子包下。
+Java 包按技术层组织。控制器和数据库实体分别直接放在 `controller` 和 `entity` 包下。服务接口放在 `service` 包下，实现类放在 `service.impl`，调用方依赖服务接口。请求 DTO 放在 `dto` 及其业务子包，接口的业务返回类放在 `vo` 包下，通用响应封装放在 `response` 包下。MyBatis 接口放在 `mapper` 及其子包下。
 
 跨模块共用的工具类放在 `common` 包，例如 `ResultUtil` 和 `ThrowUtils`。
 
 跨模块操作通过所属模块的服务接口完成。HTTP 控制器和 WebSocket 处理器负责接入与协议转换，业务模块负责权限和状态变更，图片处理模块集中管理云端交互。
 
 ## REST API 响应
+
+Spring MVC 为 `/api/**` 接口启用跨域访问，跨域认证使用 `Authorization` 请求头中的 Bearer 令牌。
 
 通用响应使用 `Response<T>` 表示，`code` 为整数业务响应码，`data` 承载接口数据，`message` 为可选提示。`data` 和 `message` 为 `null` 时省略对应的 JSON 字段。
 
@@ -98,7 +111,23 @@ JSON 响应体中的 `code` 为四位整数，前三位使用 HTTP 状态编号�
 
 ### 认证与空间权限
 
-应用登录成功后签发短期 RS256 JWT，REST API 通过 `Authorization: Bearer` 接收令牌并验证签名、签发者、受众、有效期和撤销状态。注销时将令牌标识写入 Redis，保留至令牌到期，并关闭该令牌关联的连接。WebSocket 使用受 JWT 保护的 REST 接口签发短期票据，握手时在 Redis 原子消费票据，并检查对应 JWT 的有效期和撤销状态。连接最长持续到该 JWT 到期。参考 [Spring Security JWT 文档](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html) 和 [Spring WebSocket 文档](https://docs.spring.io/spring-framework/reference/web/websocket/server.html)。
+`user_account` 使用唯一登录账号和密码哈希。平台角色为 `USER`、`VIP` 或 `ADMIN`。VIP 权益要求角色为 `VIP` 且会员尚未到期。头像保存私有 COS 对象的原始 URL，返回用户资料时签发短期访问地址。逻辑删除沿用 MyBatis-Plus 全局配置。时间字段统一使用 UTC 毫秒时间。应用初始化 `created_at` 和 `edit_time` 为同一时间，用户自行修改账号信息时刷新 `edit_time`。数据库通过 `DEFAULT CURRENT_TIMESTAMP(3)` 和 `ON UPDATE CURRENT_TIMESTAMP(3)` 维护 `update_time`。现有应用设置 `updateTime` 的代码继续保留，MyBatis-Plus 字段映射将其排除出插入和更新赋值。返回值需要更新时间时允许使用应用生成的当前时间，接受其与数据库实际写入时间略有差异。管理员和系统修改资料时保留 `edit_time`，逻辑删除由 MySQL 自动维护 `update_time`。
+
+公开注册接口 `POST /api/auth/register` 接收 `account`、`password` 和可选的 `displayName`。账号去除首尾空白后为 3–16 位 ASCII 字母、数字或下划线，保留并区分大小写。密码为 8–32 位，由后端生成带算法标识的密码哈希。新账号默认是正常状态的普通用户。数据库按区分大小写的规则约束登录名唯一性，包含逻辑删除的账号。注册成功返回用户 ID 和保存的账号。
+
+公开登录接口 `POST /api/auth/login` 先校验请求字段，密码长度与注册一致，为 8–32 个字符。再按大小写精确查询未删除的账号，使用注册时的密码编码器对比密码，并校验账号状态。找不到账号时使用占位哈希执行密码校验，各类凭据失败统一返回 `4011`。成功时使用配置的 RSA 私钥签发 RS256 JWT，默认有效期为 30 分钟。响应返回令牌、有效期和当前用户的基础资料，包含实时计算的 VIP 权益状态，以及 UTC 格式的 `editTime` 和 `updateTime`。新账号的 `editTime` 初始为创建时间，历史账号的空值继续兼容。
+
+Spring MVC 认证拦截器覆盖 `/api/**`，匿名业务入口为 `POST /api/auth/register` 和 `POST /api/auth/login`，CORS 预检沿用跨域配置。拦截器独立解析 `Authorization: Bearer`，校验 RS256 签名、签发者、受众、有效期、用户 ID 和令牌 ID，并检查 Redis 撤销记录。缺少令牌返回业务码 `4010`，令牌失效返回 `4012`，无法确认 Redis 撤销状态时返回 `5030`。
+
+认证通过后，拦截器将 JWT 中的操作者 ID 绑定到请求线程，在线程处理结束时清理。Controller 方法可通过 `@AuthCheck` 声明最低平台角色，切面按线程中的操作者 ID 查询数据库，校验最新账号状态、角色和 VIP 到期时间。账号不存在或已停用时返回业务码 `4012`。`USER` 允许所有平台角色，`VIP` 允许会员未到期的 `VIP` 和 `ADMIN`，`ADMIN` 仅允许管理员。角色不足时返回业务码 `4030`。`GET /api/auth/session` 由认证服务查询最新账号资料，确认账号有效后返回 `data.user` 和 UTC 到期时间 `data.expiresAt`。空间和图片的资源权限由所属业务服务校验。
+
+`GET /api/admin/users/{id}` 要求管理员权限。接口可查询正常和停用的用户，并返回账号原始值、头像字段、角色、状态和 UTC 时间字段。响应白名单排除密码和密码哈希。`GET /api/users/{id}` 允许登录用户查询正常用户的 ID、昵称和可访问的头像地址。COS 头像签发接入前，公开头像字段为 `null`。逻辑删除的账号在两个接口均返回业务码 `4040`，公开资料接口对停用账号也返回 `4040`。`GET /api/heartbeat` 也要求有效登录态。
+
+`POST /api/admin/users` 复用公开注册的账号和唯一约束规则。请求字段包括 `account`、`displayName`、`platformRole`、`status` 和 `vipExpiresAt`。服务端将初始密码统一设置为 `12345678`，通过现有密码编码器哈希后保存。管理员可指定角色、状态和 VIP 到期时间，角色和状态默认 `USER` 与 `ACTIVE`。首个管理员由部署人员在数据库里将指定账号的 `platform_role` 设为 `ADMIN`。`PATCH /api/admin/users` 从请求体的必填正整数 `id` 读取目标用户，仅应用本次提交的非空资料字段，包括 `account`、`displayName`、`platformRole`、`status` 和 `vipExpiresAt`。管理员可将其他用户的角色设为 `ADMIN`，修改自己时返回 `4030`。资料字段省略或传 `null` 均保留旧值，至少提交一个非空资料字段。普通用户资料更新采用单条更新自动提交，通过影响行数判断目标是否存在，通过 Hutool `BeanUtil.copyProperties` 忽略空值，只将请求提交的字段写入更新实体，再调用 `updateById`。日期复制显式转换为 UTC。本次请求将角色设为 VIP 时，必须同时提交到期时间。创建成功返回 `{"code":200}`，采用单条插入自动提交。更新成功仅返回 `{"code":200}`，更新前后均不查询目标用户。
+
+`DELETE /api/admin/users/{id}` 直接调用 MyBatis-Plus `deleteById`，沿用逻辑删除配置，`update_time` 由 MySQL 自动维护，管理员删除自己的账号时返回 `4030`。修改和删除的操作者 ID 均来自鉴权通过的当前线程。删除后原登录名仍由唯一索引保留，旧令牌在会话查询及角色鉴权时被拒绝。`GET /api/admin/users` 使用 MyBatis-Plus 的 `Page`、`selectPage` 和 MySQL 分页拦截器按 ID 倒序查询未删除用户，总数与分页 SQL 由插件生成，包含停用账号，返回 `records`、`total`、`page` 和 `pageSize`。接口通过 URL 查询参数绑定 `UserQueryRequest`，该类继承通用 `PageRequest` 中的 `page` 和 `pageSize`。Controller 和 Service 均接收查询对象。用户条件包括精确匹配的 `id`、`platformRole`、`status`，字面包含匹配的 `account`、`displayName`，以及包含边界的创建时间范围 `createdAtStart`、`createdAtEnd`。省略或空白的条件不参与筛选，多个条件按 AND 组合。账号去除首尾空白并保留大小写，非空片段允许 1–32 位 ASCII 字母、数字或下划线，以兼容历史账号。昵称片段最多 64 个字符。LIKE 参数显式转义 `!`、`%`、`_` 并通过参数绑定查询。时间范围接收带时区的 ISO 8601 时间并转换为 UTC，上限不能早于下限。相同的 Wrapper 用于总数与记录查询，约束不合法返回 `4001`，类型或时间格式错误返回 `4000`。页码默认 1，每页默认 20 条，最多 100 条。超出末页时返回空记录及实际总数。列表与管理详情复用 `AdminUserVo` 及其字段白名单。
+
+注销只撤销当前令牌，在 Redis 原子写入令牌 ID 和有效期，并发布 `AccessTokenRevokedEvent`，供协作模块按令牌 ID 关闭连接。注销请求与其他受保护接口统一校验 JWT 和撤销记录。已注销令牌再次调用返回业务码 `4012`，并发重复撤销也通过 Redis 原子写入结果拒绝，撤销通知只在首次成功时发布。撤销记录保留到令牌停止被接受时。WebSocket 使用受 JWT 保护的 REST 接口签发短期票据，握手时在 Redis 原子消费票据，并检查对应 JWT 的有效期和撤销状态。连接最长持续到该 JWT 到期。参考 [Spring Security JWT 文档](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html) 和 [Spring WebSocket 文档](https://docs.spring.io/spring-framework/reference/web/websocket/server.html)。
 
 个人空间由空间所有者访问。团队的查看者可以查看和下载，编辑者还可以上传、编辑和优化图片，所有者另有成员管理权限。后端在读取、写入或订阅时按图片所属空间校验当前权限。成员失去访问权限时撤销对应的订阅。
 

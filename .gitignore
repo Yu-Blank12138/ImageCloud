@@ -2,6 +2,9 @@ HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar
 /src/main/resources/application-dev.yaml
+/dev-secrets/
+.DS_Store
+/账号.txt
 !**/src/main/**/target/
 !**/src/test/**/target/
 
