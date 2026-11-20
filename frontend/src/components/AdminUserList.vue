@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { actionableUserId, lastUserPage, type AdminUserPage, type DeletionTarget } from '../admin/users'
+import { actionableUserId, lastUserPage, type AdminUserDetails, type AdminUserPage, type DeletionTarget } from '../admin/users'
 import UserTime from './UserTime.vue'
-import { browserTimeZone } from '../utils/time'
 
 const props = defineProps<{
   result: AdminUserPage | null
   currentAccountId: string | null
+  selfUser?: AdminUserDetails | null
   pageSize: number
   loading: boolean
   busy: boolean
@@ -27,32 +27,46 @@ const emit = defineEmits<{
 }>()
 
 const roles = { USER: '普通用户', VIP: 'VIP', ADMIN: '管理员' }
-const sizeInput = ref<number | string>(props.pageSize)
+// 每页条数只提供 10、20、30 三档，最多 30 条。
+const PAGE_SIZES = [10, 20, 30]
 const dialog = ref<HTMLDialogElement | null>(null)
-const rows = computed(() => props.result?.records.map((user) => ({
-  id: actionableUserId(user.id),
-  account: user.account,
-  displayName: user.displayName,
-  role: roles[user.platformRole],
-  status: user.status === 'ACTIVE' ? '正常' : '停用',
-  createdAt: user.createdAt,
-  editTime: user.editTime,
-  updateTime: user.updateTime,
-})) ?? [])
+
+function toRow(user: AdminUserDetails) {
+  return {
+    id: actionableUserId(user.id),
+    account: user.account,
+    displayName: user.displayName,
+    role: roles[user.platformRole],
+    status: user.status === 'ACTIVE' ? '正常' : '停用',
+    createdAt: user.createdAt,
+    editTime: user.editTime,
+    updateTime: user.updateTime,
+  }
+}
+
+const rows = computed(() => {
+  // 当前登录用户由会话单独查询后固定在第一行，并从分页结果中移除避免重复。
+  const pinned = props.selfUser ? toRow(props.selfUser) : null
+  const records = (props.result?.records ?? []).map(toRow)
+    .filter((row) => !pinned || row.id !== pinned.id)
+  if (pinned) return [pinned, ...records]
+  // 本人详情尚未返回时，仍把当前页内出现的本人置顶。
+  const index = records.findIndex((row) => row.id === props.currentAccountId)
+  if (index > 0) records.unshift(...records.splice(index, 1))
+  return records
+})
 const lastPage = computed(() => props.result ? lastUserPage(props.result) : 1)
 
-watch(() => props.pageSize, (value) => { sizeInput.value = value })
 watch(() => props.deleteTarget, (target) => {
   // 原生模态框限制焦点，取消和关闭均由父组件确认请求状态。
   if (target && !dialog.value?.open) dialog.value?.showModal()
   if (!target && dialog.value?.open) dialog.value.close()
 }, { flush: 'post' })
 
-function applyPageSize() {
-  const size = sizeInput.value
-  if (typeof size === 'number' && Number.isInteger(size) && size >= 1 && size <= 100 && size !== props.pageSize) {
-    emit('paginate', 1, size)
-  }
+// 切换每页条数后回到第一页，合法值之外的输入不予提交。
+function applyPageSize(event: Event) {
+  const size = Number((event.target as HTMLSelectElement).value)
+  if (PAGE_SIZES.includes(size) && size !== props.pageSize) emit('paginate', 1, size)
 }
 </script>
 
@@ -61,22 +75,19 @@ function applyPageSize() {
     <header class="list-header">
       <div>
         <h2 id="user-list-title">用户列表</h2>
-        <p class="time-zone">时间按本地时区 {{ browserTimeZone }} 显示</p>
+        <p class="time-zone">时间按记录原值显示</p>
       </div>
-      <form class="size-form" @submit.prevent="applyPageSize">
+      <div class="size-form">
         <label for="user-page-size">每页条数</label>
-        <input
+        <select
           id="user-page-size"
-          v-model.number="sizeInput"
-          type="number"
-          min="1"
-          max="100"
-          step="1"
-          required
+          :value="pageSize"
           :disabled="busy"
-        />
-        <button type="submit" :disabled="busy || pageSize === sizeInput">应用</button>
-      </form>
+          @change="applyPageSize"
+        >
+          <option v-for="size in PAGE_SIZES" :key="size" :value="size">{{ size }}</option>
+        </select>
+      </div>
     </header>
 
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>

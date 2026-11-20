@@ -14,3 +14,5 @@ npm run dev
 Vite 将 `/api` 请求转发到 `http://127.0.0.1:8080`。后端地址不同时，可通过 `IMAGECLOUD_API_TARGET` 指定目标，例如 `IMAGECLOUD_API_TARGET=http://127.0.0.1:8081 npm run dev`。生产部署时由同源服务转发 `/api`，并将前端页面路由回退到 `index.html`。
 
 运行 `npm run build` 检查类型并构建生产产物，构建输出位于 `dist/`。
+
+运行 `npm run test:avatar` 验证头像保存回读的请求竞态及会话隔离。测试使用 Node 内置测试运行器和实验性 VM 模块，不访问后端或对象存储。

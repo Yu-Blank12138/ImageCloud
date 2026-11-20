@@ -2,7 +2,7 @@ package com.blank.imagecloud;
 
 import com.blank.imagecloud.constant.UserConstant;
 import com.blank.imagecloud.mapper.UserAccountMapper;
-import com.blank.imagecloud.models.vo.entity.UserAccount;
+import com.blank.imagecloud.models.entity.UserAccount;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.jwk.RSAKey;
 import org.junit.jupiter.api.Test;
@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 
@@ -64,7 +65,7 @@ class LoginTests {
     @Test
     void logsInAndSignsAnRs256Token() throws Exception {
         UserAccount account = activeAccount();
-        account.setVipExpiresAt(LocalDateTime.now(ZoneOffset.UTC).plusDays(1).withNano(0));
+        account.setVipExpiresAt(LocalDate.now(ZoneOffset.UTC).plusDays(1));
         account.setEditTime(LocalDateTime.of(2026, 11, 17, 1, 15, 0, 123_000_000));
         when(userAccountMapper.selectOne(any())).thenReturn(account);
 
@@ -147,7 +148,7 @@ class LoginTests {
     @Test
     void logsInWithAnExpiredVipMembership() throws Exception {
         UserAccount account = activeAccount();
-        account.setVipExpiresAt(LocalDateTime.now(ZoneOffset.UTC).minusDays(1));
+        account.setVipExpiresAt(LocalDate.now(ZoneOffset.UTC).minusDays(1));
         when(userAccountMapper.selectOne(any())).thenReturn(account);
 
         login("""

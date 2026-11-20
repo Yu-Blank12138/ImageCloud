@@ -11,7 +11,7 @@ defineProps<{ title: string; description: string }>()
 
     <section class="auth-panel" aria-labelledby="auth-title">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
+        <img class="brand-mark" src="/icon.png" alt="" aria-hidden="true">
         ImageCloud
       </div>
 
@@ -73,33 +73,10 @@ defineProps<{ title: string; description: string }>()
 }
 
 .brand-mark {
-  position: relative;
-  display: grid;
   width: 36px;
   height: 36px;
-  place-items: center;
   border-radius: 10px;
-  background: #224c42;
-}
-
-.brand-mark::before {
-  width: 21px;
-  height: 16px;
-  border: 1px solid #f6f5ef;
-  border-radius: 3px;
-  background: radial-gradient(circle at 72% 25%, #f6f5ef 1px, transparent 1.6px);
-  content: '';
-}
-
-.brand-mark::after {
-  position: absolute;
-  bottom: 11px;
-  left: 9px;
-  width: 18px;
-  height: 8px;
-  clip-path: polygon(0 100%, 36% 10%, 59% 62%, 76% 36%, 100% 100%);
-  background: #f6f5ef;
-  content: '';
+  object-fit: cover;
 }
 
 .auth-content {

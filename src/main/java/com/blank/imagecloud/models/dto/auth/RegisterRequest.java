@@ -35,7 +35,7 @@ public final class RegisterRequest implements Serializable {
 
     @Size(max = UserConstant.DISPLAY_NAME_MAX_LENGTH)
     @JsonDeserialize(using = StrictStringDeserializer.class)
-    @Schema(description = "可选展示昵称，最多 64 位，空白时按未设置处理", example = "Alice")
+    @Schema(description = "可选展示昵称，最多 12 位，空白时按未设置处理", example = "Alice")
     private final String displayName;
 
     @JsonCreator

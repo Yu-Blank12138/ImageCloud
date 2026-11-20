@@ -9,8 +9,8 @@ import com.blank.imagecloud.models.dto.user.AdminUpdateUserRequest;
 import com.blank.imagecloud.models.dto.user.UserQueryRequest;
 import com.blank.imagecloud.response.Response;
 import com.blank.imagecloud.service.UserService;
-import com.blank.imagecloud.models.vo.AdminUserPageVo;
-import com.blank.imagecloud.models.vo.AdminUserVo;
+import com.blank.imagecloud.models.vo.user.AdminUserPageVo;
+import com.blank.imagecloud.models.vo.user.AdminUserVo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -32,12 +32,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 提供需要管理员权限的用户管理接口。 */
-@Tag(name = "管理员用户管理")
+/** 统一提供管理员的用户管理接口，图片管理接口见 {@link ImageController}。 */
+@Tag(name = "管理员管理")
 @RestController
-@RequestMapping("/api/admin/users")
+@RequestMapping("/api/admin")
 @RequiredArgsConstructor
-public class AdminUserController {
+public class AdminController {
     private final UserService userService;
 
     /**
@@ -47,13 +47,10 @@ public class AdminUserController {
      * @return 表示创建成功的业务响应
      */
     @AuthCheck(PlatformRole.ADMIN)
-    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "管理员创建用户",
-            description = "初始密码由服务端统一设置为 12345678，成功响应仅包含业务码 200。",
+    @PostMapping(value = "/users", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "管理员创建用户", description = "创建账号，初始密码统一为 12345678。",
             security = @SecurityRequirement(name = AuthController.BEARER_AUTH_SCHEME))
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示成功，4000 或 4001 表示输入无效，4010 或 4012 表示登录态无效，"
-                    + "4030 表示权限不足，4090 表示登录账号已被占用，5030 表示认证暂不可用。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<Void> createUser(@Valid @RequestBody AdminCreateUserRequest request) {
         userService.createUser(request);
         return ResultUtil.ok();
@@ -66,15 +63,11 @@ public class AdminUserController {
      * @return 表示更新成功的业务响应
      */
     @AuthCheck(PlatformRole.ADMIN)
-    @PatchMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PatchMapping(value = "/users", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "管理员局部更新用户",
-            description = "请求体中的 id 指定目标用户，其他资料字段省略或为 null 时保持原值。"
-                    + "设置 VIP 角色时必须同时传入 vipExpiresAt，成功响应仅包含业务码 200。",
+            description = "局部更新用户资料，目标用户由请求体 id 指定；设为 VIP 时必须同时提交到期日期。",
             security = @SecurityRequirement(name = AuthController.BEARER_AUTH_SCHEME))
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示成功，4000 或 4001 表示输入无效，4010 或 4012 表示登录态无效，"
-                    + "4030 表示权限不足或试图修改自己的账号，4040 表示用户不存在，4090 表示登录账号冲突，"
-                    + "5030 表示认证暂不可用。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<Void> updateUser(@Valid @RequestBody AdminUpdateUserRequest request) {
         Long operatorId = CurrentUserContext.requireUserId();
         userService.updateUser(operatorId, request);
@@ -88,14 +81,10 @@ public class AdminUserController {
      * @return 表示删除成功的业务响应
      */
     @AuthCheck(PlatformRole.ADMIN)
-    @DeleteMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "管理员逻辑删除用户",
-            description = "按 ID 逻辑删除其他用户。",
+    @DeleteMapping(value = "/users/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "管理员逻辑删除用户", description = "按 ID 逻辑删除用户。",
             security = @SecurityRequirement(name = AuthController.BEARER_AUTH_SCHEME))
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示成功，4000 或 4001 表示 ID 无效，4010 或 4012 表示登录态无效，"
-                    + "4030 表示权限不足或试图删除自己的账号，4040 表示用户不存在或已删除，"
-                    + "5030 表示认证暂不可用。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<Void> deleteUser(@Parameter(description = "目标用户 ID", example = "42")
                                      @PathVariable("id") Long id) {
         Long operatorId = CurrentUserContext.requireUserId();
@@ -111,15 +100,10 @@ public class AdminUserController {
      * @return 包含用户记录、总数和分页参数的业务响应
      */
     @AuthCheck(PlatformRole.ADMIN)
-    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "管理员分页查询用户",
-            description = "通过 URL 提交查询条件。账号和昵称按字面包含匹配，ID、角色和状态精确匹配，"
-                    + "创建时间支持包含边界的范围筛选，多个条件同时生效。"
-                    + "省略或空白的条件不参与筛选。账号区分大小写，片段允许 1–32 位英文字母、数字或下划线。",
+    @GetMapping(value = "/users", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "管理员分页查询用户", description = "按条件分页查询用户，结果按用户 ID 倒序。",
             security = @SecurityRequirement(name = AuthController.BEARER_AUTH_SCHEME))
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示成功，4000 表示参数格式错误，4001 表示查询条件或分页参数无效，"
-                    + "4010 或 4012 表示登录态无效，4030 表示权限不足，5030 表示认证暂不可用。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<AdminUserPageVo> pageUsers(
             @Valid @ModelAttribute @ParameterObject UserQueryRequest request,
             HttpServletResponse response) {
@@ -136,13 +120,10 @@ public class AdminUserController {
      * @return 包含用户详情的业务响应
      */
     @AuthCheck(PlatformRole.ADMIN)
-    @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = "/users/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "按 ID 获取管理员用户详情",
             security = @SecurityRequirement(name = AuthController.BEARER_AUTH_SCHEME))
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示成功，4000 表示 ID 格式错误，4001 表示 ID 无效，"
-                    + "4010 表示缺少令牌，4012 表示登录态失效，4030 表示权限不足，"
-                    + "4040 表示用户不存在或已删除，5030 表示认证暂不可用。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<AdminUserVo> getUser(@Parameter(description = "目标用户 ID", example = "42")
                                         @PathVariable("id") Long id, HttpServletResponse response) {
         AdminUserVo user = userService.getAdminUser(id);

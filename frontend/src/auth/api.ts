@@ -1,5 +1,7 @@
 import { ApiError, bearerOptions, requestJson, requireData } from '../api/http'
 
+import type { ProfileFields } from '../profile/fields'
+
 interface Credentials {
   account: string
   password: string
@@ -10,7 +12,8 @@ interface Registration extends Credentials {
 }
 
 interface RegisteredAccount {
-  id: number
+  /** 用户主键，接口以字符串返回以避免雪花 ID 精度丢失。 */
+  id: string
   account: string
 }
 
@@ -18,12 +21,13 @@ export interface LoginResult {
   accessToken: string
   tokenType: 'Bearer'
   expiresIn: number
-  user: RegisteredAccount & {
+  user: RegisteredAccount & ProfileFields & {
     displayName?: string
     platformRole: 'USER' | 'VIP' | 'ADMIN'
+    /** VIP 到期日期，格式 YYYY-MM-DD，到期当天仍然有效。 */
     vipExpiresAt?: string
     vipActive: boolean
-    // 保留服务端的 UTC ISO 8601 原文及秒小数，首次自行修改资料前 editTime 为 null。
+    // 业务时间保留无时区原文及秒小数，历史 editTime 可能为 null。
     editTime: string | null
     updateTime: string
   }
@@ -31,6 +35,7 @@ export interface LoginResult {
 
 interface SessionResult {
   user: LoginResult['user']
+  // 根级到期时间属于令牌协议时间，必须按绝对时间解析。
   expiresAt: string
 }
 

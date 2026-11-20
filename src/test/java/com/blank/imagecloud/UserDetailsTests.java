@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.blank.imagecloud.config.JwtProperties;
 import com.blank.imagecloud.constant.UserConstant;
 import com.blank.imagecloud.mapper.UserAccountMapper;
-import com.blank.imagecloud.models.vo.entity.UserAccount;
+import com.blank.imagecloud.models.entity.UserAccount;
 import com.blank.imagecloud.utils.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -116,7 +117,7 @@ class UserDetailsTests {
     }
 
     /**
-     * 验证登录用户只能读取公开字段，私有头像原始 URL 不对外返回。
+     * 验证登录用户读取公开字段和已保存的固定头像地址。
      */
     @Test
     void returnsOnlyPublicFieldsForSignedInUser() throws Exception {
@@ -131,7 +132,8 @@ class UserDetailsTests {
                 .andReturn();
         assertThat(json.readTree(result.getResponse().getContentAsByteArray()).get("data"))
                 .isEqualTo(json.readTree("""
-                        {"id":42,"displayName":"Alice","avatarUrl":null}
+                        {"id":42,"displayName":"Alice",
+                         "avatarUrl":"https://example.cos.ap-beijing.myqcloud.com/avatars/alice.png"}
                         """));
     }
 
@@ -200,7 +202,7 @@ class UserDetailsTests {
         verify(userAccountMapper, never()).insert(any(UserAccount.class));
 
         var payload = json.createObjectNode().put("account", " Alice_01 ").put("platformRole", "VIP")
-                .put("vipExpiresAt", "2026-12-01T08:00:00+08:00");
+                .put("vipExpiresAt", "2026-12-01");
         if (suppliedPassword) {
             payload.put("password", "customPassword");
         }
@@ -215,7 +217,7 @@ class UserDetailsTests {
         assertThat(inserted.getValue().getAccount()).isEqualTo("Alice_01");
         assertThat(inserted.getValue().getStatus()).isEqualTo(UserConstant.STATUS_ACTIVE);
         assertThat(inserted.getValue().getPlatformRole()).isEqualTo(UserConstant.ROLE_VIP);
-        assertThat(inserted.getValue().getVipExpiresAt()).isEqualTo(LocalDateTime.of(2026, 12, 1, 0, 0));
+        assertThat(inserted.getValue().getVipExpiresAt()).isEqualTo(LocalDate.of(2026, 12, 1));
         assertThat(inserted.getValue().getPasswordHash()).startsWith("{pbkdf2-sha256-v1}");
         assertThat(passwordEncoder.matches("12345678", inserted.getValue().getPasswordHash())).isTrue();
         assertThat(passwordEncoder.matches("customPassword", inserted.getValue().getPasswordHash())).isFalse();
@@ -291,20 +293,29 @@ class UserDetailsTests {
     }
 
     /**
-     * 验证本次请求的会员时间被转为 UTC，省略角色时可单独修改到期时间。
-     *
-     * @param setsVipRole 本次请求是否同时设置 VIP 角色
+     * 验证单独提交会员到期日期而不声明 VIP 身份时被拒绝。
      */
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void copiesSubmittedFieldsWithUtcExpiry(boolean setsVipRole) throws Exception {
+    @Test
+    void rejectsVipExpiryWithoutVipRole() throws Exception {
+        String admin = bearerForRole(UserConstant.ROLE_ADMIN);
+        var payload = json.createObjectNode().put("id", 42).put("vipExpiresAt", "2027-01-01");
+
+        mvc.perform(patch("/api/admin/users").header(HttpHeaders.AUTHORIZATION, admin)
+                        .contentType(MediaType.APPLICATION_JSON).content(payload.toString()))
+                .andExpect(jsonPath("$.code").value(4001));
+
+        verify(userAccountMapper, never()).update(any(UserAccount.class), any());
+    }
+
+    /**
+     * 验证同时声明 VIP 身份时，会员到期日期按原值保存。
+     */
+    @Test
+    void copiesSubmittedFieldsWithVipExpiryDate() throws Exception {
         String admin = bearerForRole(UserConstant.ROLE_ADMIN);
         when(userAccountMapper.updateById(any(UserAccount.class))).thenReturn(1);
         var payload = json.createObjectNode().put("id", 42).put("displayName", " New name ")
-                .put("vipExpiresAt", "2027-01-01T08:00:00+08:00");
-        if (setsVipRole) {
-            payload.put("platformRole", UserConstant.ROLE_VIP);
-        }
+                .put("vipExpiresAt", "2027-01-01").put("platformRole", UserConstant.ROLE_VIP);
 
         mvc.perform(patch("/api/admin/users").header(HttpHeaders.AUTHORIZATION, admin)
                         .contentType(MediaType.APPLICATION_JSON).content(payload.toString()))
@@ -312,9 +323,9 @@ class UserDetailsTests {
 
         var saved = ArgumentCaptor.forClass(UserAccount.class);
         verify(userAccountMapper).updateById(saved.capture());
-        assertThat(saved.getValue().getVipExpiresAt()).isEqualTo(LocalDateTime.of(2027, 1, 1, 0, 0));
+        assertThat(saved.getValue().getVipExpiresAt()).isEqualTo(LocalDate.of(2027, 1, 1));
         assertThat(saved.getValue().getDisplayName()).isEqualTo("New name");
-        assertThat(saved.getValue().getPlatformRole()).isEqualTo(setsVipRole ? UserConstant.ROLE_VIP : null);
+        assertThat(saved.getValue().getPlatformRole()).isEqualTo(UserConstant.ROLE_VIP);
         assertThat(saved.getValue().getAccount()).isNull();
         assertThat(saved.getValue().getStatus()).isNull();
         verify(userAccountMapper, never()).selectOne(any());
@@ -625,7 +636,8 @@ class UserDetailsTests {
                 .andExpect(jsonPath("$.components.schemas.AdminCreateUserRequest.properties.password").doesNotHaveJsonPath())
                 .andExpect(jsonPath("$.components.schemas.AdminUpdateUserRequest.properties.password").doesNotHaveJsonPath())
                 .andExpect(jsonPath("$.components.schemas.AdminUserPageVo.properties.records").exists())
-                .andExpect(jsonPath("$.components.schemas.PublicUserVo.properties.account").doesNotHaveJsonPath());
+                .andExpect(jsonPath("$.components.schemas.PublicUserVo.properties.account").exists())
+                .andExpect(jsonPath("$.components.schemas.PublicUserVo.properties.id").doesNotHaveJsonPath());
         mvc.perform(get("/doc.html")).andExpect(status().isOk());
     }
 

@@ -10,12 +10,13 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.format.annotation.DateTimeFormat;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.List;
 
 /** 管理员用户列表的可选筛选条件，与分页参数一起通过 URL 查询参数提交。 */
 @Getter
 @Setter
-@Schema(description = "管理员用户分页查询条件，省略或空白的条件不参与筛选")
+@Schema(description = "管理员用户分页查询条件")
 public class UserQueryRequest extends PageRequest {
     /** 按用户主键精确匹配。 */
     @Positive
@@ -30,14 +31,13 @@ public class UserQueryRequest extends PageRequest {
 
     /** 按展示昵称的字面片段进行包含匹配。 */
     @Size(max = UserConstant.DISPLAY_NAME_MAX_LENGTH)
-    @Schema(description = "可选昵称片段，最多 64 个字符，按字面包含匹配", example = "Alice")
+    @Schema(description = "可选昵称片段，最多 12 个字符，按字面包含匹配", example = "Alice")
     private String displayName;
 
-    /** 平台角色按枚举值精确匹配。 */
-    @Pattern(regexp = UserConstant.ROLE_PATTERN)
-    @Schema(description = "可选平台角色，精确匹配",
+    /** 平台角色多选，命中任一角色即符合条件。 */
+    @Schema(description = "可选平台角色集合，可同时选择多个，命中任一角色即符合条件",
             allowableValues = {UserConstant.ROLE_USER, UserConstant.ROLE_VIP, UserConstant.ROLE_ADMIN})
-    private String platformRole;
+    private List<@Pattern(regexp = UserConstant.ROLE_PATTERN) String> platformRoles;
 
     /** 账号状态按枚举值精确匹配。 */
     @Pattern(regexp = UserConstant.STATUS_PATTERN)
@@ -45,17 +45,18 @@ public class UserQueryRequest extends PageRequest {
             allowableValues = {UserConstant.STATUS_ACTIVE, UserConstant.STATUS_DISABLED})
     private String status;
 
-    /** 创建时间的包含式下限，带时区的输入转换为 UTC 后查询。 */
+    /** 创建时间的包含式下限，直接按本地日期时间查询，秒精度。 */
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-    @Schema(description = "可选创建时间下限，包含边界，使用带时区的 ISO 8601 时间",
-            format = "date-time", example = "2026-11-01T00:00:00Z")
-    private Instant createdAtStart;
+    @Schema(description = "可选创建时间下限，包含边界，使用无时区的 ISO 8601 本地日期时间，秒精度",
+            type = "string", format = "local-date-time", example = "2026-11-01T00:00:00")
+    private LocalDateTime createdAtStart;
 
-    /** 创建时间的包含式上限，带时区的输入转换为 UTC 后查询。 */
+    /** 创建时间的包含式上限，缺省时与下限配合表示查询起点到现在。 */
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-    @Schema(description = "可选创建时间上限，包含边界，使用带时区的 ISO 8601 时间",
-            format = "date-time", example = "2026-11-30T23:59:59.999Z")
-    private Instant createdAtEnd;
+    @Schema(description = "可选创建时间上限，包含边界，使用无时区的 ISO 8601 本地日期时间，秒精度；"
+            + "设置了下限而省略上限时，上限按当前时间处理",
+            type = "string", format = "local-date-time", example = "2026-11-30T23:59:59")
+    private LocalDateTime createdAtEnd;
 
     /**
      * 规整账号搜索条件，保留大小写，空白表示未指定条件。
@@ -76,12 +77,16 @@ public class UserQueryRequest extends PageRequest {
     }
 
     /**
-     * 规整平台角色条件，空白表示未指定条件。
+     * 规整平台角色条件：去除空白和重复值，空集合表示未指定条件。
      *
-     * @param platformRole 前端提交的可选平台角色
+     * @param platformRoles 前端提交的可选平台角色集合
      */
-    public void setPlatformRole(String platformRole) {
-        this.platformRole = platformRole == null || platformRole.isBlank() ? null : platformRole.strip();
+    public void setPlatformRoles(List<String> platformRoles) {
+        this.platformRoles = platformRoles == null ? null : platformRoles.stream()
+                .filter(role -> role != null && !role.isBlank())
+                .map(String::strip)
+                .distinct()
+                .toList();
     }
 
     /**

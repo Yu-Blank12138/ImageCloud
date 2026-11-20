@@ -25,7 +25,7 @@ public class HeartbeatController {
             security = @SecurityRequirement(name = AuthController.BEARER_AUTH_SCHEME))
     @ApiResponse(
             responseCode = "200",
-            description = "业务码 200 表示应用可响应，4010 表示缺少令牌，4012 表示登录态无效，5030 表示暂无法认证。",
+            description = "业务码 200 表示应用可响应，其余返回对应业务错误码。",
             useReturnTypeSchema = true,
             content = @Content(mediaType = "application/json", examples = @ExampleObject(value = "{\"code\":200}"))
     )

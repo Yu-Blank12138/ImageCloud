@@ -2,9 +2,9 @@ package com.blank.imagecloud.service;
 
 import com.blank.imagecloud.models.dto.auth.LoginRequest;
 import com.blank.imagecloud.models.dto.auth.RegisterRequest;
-import com.blank.imagecloud.models.vo.LoginVo;
-import com.blank.imagecloud.models.vo.LoginSessionVo;
-import com.blank.imagecloud.models.vo.RegisterVo;
+import com.blank.imagecloud.models.vo.auth.LoginVo;
+import com.blank.imagecloud.models.vo.user.LoginSessionVo;
+import com.blank.imagecloud.models.vo.auth.RegisterVo;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.time.Instant;

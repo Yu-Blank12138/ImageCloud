@@ -11,7 +11,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 
-import java.time.Instant;
+import java.time.LocalDate;
 
 /** 管理员创建账号时可提交的字段。 */
 @Getter
@@ -40,8 +40,9 @@ public final class AdminCreateUserRequest {
             allowableValues = {UserConstant.STATUS_ACTIVE, UserConstant.STATUS_DISABLED})
     private final String status;
 
-    @Schema(description = "VIP 到期时间，角色为 VIP 时必填", format = "date-time")
-    private final Instant vipExpiresAt;
+    @Schema(description = "VIP 到期日期，格式 YYYY-MM-DD，到期当天仍然有效；角色为 VIP 时必填",
+            type = "string", format = "date", example = "2026-12-01")
+    private final LocalDate vipExpiresAt;
 
     /**
      * 读取允许提交的账号字段，并在校验前规整账号和昵称的首尾空白。
@@ -50,14 +51,14 @@ public final class AdminCreateUserRequest {
      * @param displayName 可选的展示昵称
      * @param platformRole 可选的平台角色
      * @param status 可选的账号状态
-     * @param vipExpiresAt 可选的 VIP 到期时间
+     * @param vipExpiresAt 可选的 VIP 到期日期，格式 YYYY-MM-DD
      */
     @JsonCreator
     public AdminCreateUserRequest(@JsonProperty("account") String account,
                                   @JsonProperty("displayName") String displayName,
                                   @JsonProperty("platformRole") String platformRole,
                                   @JsonProperty("status") String status,
-                                  @JsonProperty("vipExpiresAt") Instant vipExpiresAt) {
+                                  @JsonProperty("vipExpiresAt") LocalDate vipExpiresAt) {
         this.account = account == null ? null : account.strip();
         this.displayName = displayName == null ? null : displayName.strip();
         this.platformRole = platformRole;

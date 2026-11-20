@@ -1,4 +1,4 @@
-package com.blank.imagecloud.models.vo;
+package com.blank.imagecloud.models.vo.auth;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Value;

@@ -9,13 +9,22 @@ import { isInvalidSessionError } from '../auth/api'
 import { getActiveSession, invalidateSession } from '../auth/session'
 import AdminUserList from '../components/AdminUserList.vue'
 import UserTime from '../components/UserTime.vue'
-import { browserTimeZone, toLocalDateTime, toUtcDateTime } from '../utils/time'
+import { normalizeBusinessDate } from '../utils/time'
+
+import ProfileFieldsForm from '../components/ProfileFieldsForm.vue'
+import { profileDraft, profileChanges, validateProfile } from '../profile/fields'
 
 const router = useRouter()
 const lookupId = ref('')
 const lookupError = ref('')
 const accountInput = ref('')
 const accountQuery = ref('')
+const nicknameInput = ref('')
+const nicknameQuery = ref('')
+const roleInput = ref<string[]>([])
+const roleQuery = ref<string[]>([])
+const rangeInput = reactive({ createdAtStart: '', createdAtEnd: '' })
+const rangeQuery = ref<{ createdAtStart?: string; createdAtEnd?: string }>({})
 const searchError = ref('')
 const saveError = ref('')
 const listError = ref('')
@@ -34,6 +43,9 @@ const baseline = ref<{
 } | null>(null)
 const currentAccount = getActiveSession()?.user
 const currentAccountId = currentAccount ? actionableUserId(currentAccount.id) : null
+// 当前登录用户的完整详情，用于在列表中固定展示首行。
+const selfUser = ref<AdminUserDetails | null>(null)
+let selfRequest: AbortController | undefined
 const detailsRestriction = computed(() => baseline.value ? writeRestriction(baseline.value.id, currentAccountId) : '')
 const detailsTitle = ref<HTMLElement | null>(null)
 const drawer = ref<HTMLDialogElement | null>(null)
@@ -65,6 +77,7 @@ function initialDraft() {
     platformRole: 'USER' as UserFields['platformRole'],
     status: 'ACTIVE' as UserFields['status'],
     vipExpiresAt: '',
+    ...profileDraft(),
   }
 }
 
@@ -94,6 +107,7 @@ function applyDetails(details: AdminUserDetails, requestedId?: string) {
   // 查询和编辑沿用请求中的十进制 ID，避免把 Java Long 经过 JS Number 舍入后写到别的用户。
   const id = requestedId ?? actionableUserId(details.id)
   const fields: UserFields = {
+    gender: details.gender, bio: details.bio, email: details.email, phoneNumber: details.phoneNumber, birthMonth: details.birthMonth,
     account: details.account,
     displayName: details.displayName ?? null,
     platformRole: details.platformRole,
@@ -106,31 +120,21 @@ function applyDetails(details: AdminUserDetails, requestedId?: string) {
   lookupId.value = id ?? ''
   Object.assign(draft, {
     ...fields,
+    ...profileDraft(fields),
     displayName: fields.displayName ?? '',
-    vipExpiresAt: fields.vipExpiresAt ? toLocalDateTime(fields.vipExpiresAt) ?? '' : '',
+    vipExpiresAt: fields.vipExpiresAt ? normalizeBusinessDate(fields.vipExpiresAt) ?? '' : '',
   })
-}
-
-function utcTimeKey(value: string) {
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?Z$/.exec(value)
-  if (!match) return undefined
-  const seconds = match[1]
-  const date = new Date(seconds + 'Z')
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 19) !== seconds) return undefined
-  // 只在比较时去掉秒小数的尾零，保留其他精度及提交时的原文。
-  const fraction = match[2]?.replace(/0+$/, '')
-  return seconds + (fraction ? '.' + fraction : '') + 'Z'
 }
 
 function changedFields(before: UserFields, after: UserFields) {
   const patch: Partial<UserFields> = {}
-  if (before.account !== after.account) patch.account = after.account
+  // 登录账号不可修改，不参与编辑对比。
   if (before.displayName !== after.displayName) patch.displayName = after.displayName
   if (before.platformRole !== after.platformRole) patch.platformRole = after.platformRole
   if (before.status !== after.status) patch.status = after.status
   if (before.vipExpiresAt !== after.vipExpiresAt) {
-    const time = after.vipExpiresAt && utcTimeKey(after.vipExpiresAt)
-    if (!time || !before.vipExpiresAt || time !== utcTimeKey(before.vipExpiresAt)) {
+    const date = after.vipExpiresAt && normalizeBusinessDate(after.vipExpiresAt)
+    if (!date || !before.vipExpiresAt || date !== normalizeBusinessDate(before.vipExpiresAt)) {
       patch.vipExpiresAt = after.vipExpiresAt
     }
   }
@@ -187,12 +191,18 @@ async function loadPage(page = pageQuery.value.page, pageSize = pageQuery.value.
   pageQuery.value = { page, pageSize }
   userPage.value = null
   await run('list', async (token, signal) => {
-    let result = await fetchUserPage(page, pageSize, token, signal, accountQuery.value)
+    const filters = {
+      account: accountQuery.value,
+      displayName: nicknameQuery.value,
+      platformRoles: roleQuery.value,
+      ...rangeQuery.value,
+    }
+    let result = await fetchUserPage(page, pageSize, token, signal, filters)
     // 删除或并发修改可能让当前页越界，按服务端实际总数重新请求合法页。
     while (result.page > lastUserPage(result)) {
       const last = lastUserPage(result)
       pageQuery.value = { page: last, pageSize: result.pageSize }
-      result = await fetchUserPage(last, result.pageSize, token, signal, accountQuery.value)
+      result = await fetchUserPage(last, result.pageSize, token, signal, filters)
     }
     return result
   }, (result) => {
@@ -204,6 +214,7 @@ async function loadPage(page = pageQuery.value.page, pageSize = pageQuery.value.
 async function searchUsers() {
   if (busy.value || deleteTarget.value) return
   const account = accountInput.value.trim()
+  const nickname = nicknameInput.value.trim()
   searchError.value = ''
   if (account.length > 32) {
     searchError.value = '账号搜索内容不能超过 32 个字符。'
@@ -213,15 +224,35 @@ async function searchUsers() {
     searchError.value = '账号搜索仅支持英文字母、数字或下划线。'
     return
   }
+  if (nickname.length > 12) {
+    searchError.value = '昵称搜索内容不能超过 12 个字符。'
+    return
+  }
+  // 日期选择器只提供年月日，提交时展开为当日起止边界，避免手动输入时间。
+  const range: typeof rangeQuery.value = {}
+  for (const key of ['createdAtStart', 'createdAtEnd'] as const) {
+    if (!rangeInput[key]) continue
+    range[key] = rangeInput[key] + (key === 'createdAtStart' ? 'T00:00:00' : 'T23:59:59')
+  }
+  if (range.createdAtStart && range.createdAtEnd && rangeInput.createdAtStart > rangeInput.createdAtEnd) {
+    searchError.value = '创建时间结束日期不能早于开始日期。'; return
+  }
+  rangeQuery.value = range
   // 使用已提交的条件刷新列表，输入框后续改动不会影响翻页及操作回读。
   listNotice.value = ''
   accountQuery.value = account
+  nicknameQuery.value = nickname
+  // 角色多选复制一份，后续勾选变化不影响已提交的筛选条件。
+  roleQuery.value = [...roleInput.value]
   await loadPage(1)
 }
 
 async function resetSearch() {
   if (busy.value || deleteTarget.value) return
   accountInput.value = ''
+  nicknameInput.value = ''
+  roleInput.value = []
+  Object.assign(rangeInput, { createdAtStart: '', createdAtEnd: '' })
   await searchUsers()
 }
 
@@ -275,11 +306,18 @@ async function refreshSavedDetails() {
   await run('save', (token, signal) => fetchUser(id, token, signal), (details) => applyDetails(details, id))
 }
 
+// 选择到期日期时自动把身份切换为 VIP，避免出现普通用户却带到期日期的请求。
+function applyVipRoleWhenExpiryPicked() {
+  if (draft.vipExpiresAt && draft.platformRole !== 'VIP') {
+    draft.platformRole = 'VIP'
+  }
+}
+
 function restoreUnchangedExpiry() {
   // 后端不接受用 null 清除到期时间，空输入恢复已保存值。
   if (!draft.vipExpiresAt.trim() && baseline.value) {
     const saved = baseline.value.fields.vipExpiresAt
-    draft.vipExpiresAt = saved ? toLocalDateTime(saved) ?? '' : ''
+    draft.vipExpiresAt = saved ? normalizeBusinessDate(saved) ?? '' : ''
   }
 }
 
@@ -292,15 +330,16 @@ async function saveUser() {
   const before = original?.fields
   const expiryInput = draft.vipExpiresAt.trim()
   const savedExpiry = before?.vipExpiresAt ?? null
-  // 未修改的本地时间沿用原始 UTC，尤其避免夏令时重复时刻和秒小数被改写。
-  const expiry = savedExpiry && expiryInput === toLocalDateTime(savedExpiry)
-    ? savedExpiry : expiryInput ? toUtcDateTime(expiryInput) : null
+  // 未改动时沿用接口原文，VIP 到期日期按本地日期提交，不做时区转换。
+  const expiry = savedExpiry && expiryInput === normalizeBusinessDate(savedExpiry)
+    ? savedExpiry : expiryInput ? normalizeBusinessDate(expiryInput) : null
   if (expiryInput && !expiry) {
-    saveError.value = '请输入有效的本地时间（' + browserTimeZone + '），例如 2026-12-01 18:00:00。'
+    saveError.value = '请选择有效的 VIP 到期日期。'
     return
   }
   const fields: UserFields = {
-    account: draft.account === before?.account ? before.account : draft.account.trim(),
+    // 账号仅用于创建，编辑时不可修改、不进入 PATCH 载荷。
+    account: draft.account.trim(),
     // 昵称使用空字符串清除，null 和省略字段均沿用服务端原值。
     displayName: before && draft.displayName === (before.displayName ?? '')
       ? before.displayName : before ? draft.displayName.trim() : draft.displayName.trim() || null,
@@ -308,24 +347,27 @@ async function saveUser() {
     status: draft.status,
     vipExpiresAt: expiry,
   }
-  const changes = before ? changedFields(before, fields) : fields
+  const changes = before ? { ...changedFields(before, fields), ...profileChanges(before, draft) } : fields
+  const invalid = validateProfile(changes)
+  if (invalid) { saveError.value = invalid; return }
 
-  if (changes.account !== undefined && !/^[A-Za-z0-9_]{3,16}$/.test(changes.account)) {
+  // 仅创建用户时需要校验账号格式，编辑中账号不可修改。
+  if (!before && !/^[A-Za-z0-9_]{3,16}$/.test(fields.account)) {
     saveError.value = '账号须为 3–16 个英文字母、数字或下划线。'
     return
   }
-  if (changes.displayName && changes.displayName.length > 64) {
-    saveError.value = '昵称不能超过 64 个字符。'
+  if (changes.displayName && changes.displayName.length > 12) {
+    saveError.value = '昵称不能超过 12 个字符。'
     return
   }
   if (fields.platformRole === 'VIP' && !fields.vipExpiresAt) {
-    saveError.value = 'VIP 用户必须设置到期时间。'
+    saveError.value = 'VIP 用户必须设置到期日期。'
     return
   }
-  // 后端在切换为 VIP 时要求同时提交到期时间。
+  // 后端在切换为 VIP 时要求同时提交到期日期。
   if (changes.platformRole === 'VIP') changes.vipExpiresAt = fields.vipExpiresAt
-  if (changes.vipExpiresAt && !utcTimeKey(changes.vipExpiresAt)) {
-    saveError.value = '请输入有效的 VIP 到期时间。'
+  if (changes.vipExpiresAt && !normalizeBusinessDate(changes.vipExpiresAt)) {
+    saveError.value = '请输入有效的 VIP 到期日期。'
     return
   }
 
@@ -365,8 +407,29 @@ async function saveUser() {
   if (saved) await loadPage(1)
 }
 
-onMounted(() => loadPage())
-onBeforeUnmount(() => request?.abort())
+// 按会话中的当前用户 ID 单独查询详情，使首行展示不受筛选与分页结果影响。
+async function loadSelf() {
+  const session = getActiveSession()
+  if (!session || !currentAccountId) return
+  const controller = new AbortController()
+  selfRequest = controller
+  try {
+    selfUser.value = await fetchUser(currentAccountId, session.accessToken, controller.signal)
+  } catch {
+    // 会话失效由列表请求统一处理，此处仅保留当前页兜底排序。
+  } finally {
+    if (selfRequest === controller) selfRequest = undefined
+  }
+}
+
+onMounted(() => {
+  void loadSelf()
+  void loadPage()
+})
+onBeforeUnmount(() => {
+  request?.abort()
+  selfRequest?.abort()
+})
 </script>
 
 <template>
@@ -382,32 +445,66 @@ onBeforeUnmount(() => request?.abort())
     </header>
 
     <div class="lookup-toolbar">
-      <form class="account-search" role="search" aria-label="按账号搜索用户" novalidate @submit.prevent="searchUsers">
-        <label for="account-search">账号</label>
-        <input
-          id="account-search" v-model="accountInput" placeholder="输入账号或账号片段"
-          autocomplete="off" autocapitalize="none" spellcheck="false"
-          :readonly="busy !== null" :aria-invalid="Boolean(searchError) || undefined"
-          :aria-describedby="searchError ? 'account-search-error' : undefined"
-        />
-        <button class="secondary" type="submit" :disabled="busy !== null">搜索</button>
-        <button v-if="accountQuery || accountInput" class="secondary" type="button" :disabled="busy !== null" @click="resetSearch">重置</button>
-      </form>
-      <form class="lookup" novalidate @submit.prevent="loadUser()">
-        <label for="user-id">用户 ID</label>
-        <input id="user-id" v-model="lookupId" placeholder="输入用户 ID" inputmode="numeric" :readonly="busy !== null" required />
-        <button class="secondary" type="submit" :disabled="busy !== null">
-          {{ busy === 'lookup' ? '正在查询…' : '查询' }}
-        </button>
+      <div class="lookup-row">
+        <form class="lookup" novalidate @submit.prevent="loadUser()">
+          <label for="user-id">用户 ID</label>
+          <input id="user-id" v-model="lookupId" placeholder="输入用户 ID" inputmode="numeric" :readonly="busy !== null" required />
+          <button class="secondary" type="submit" :disabled="busy !== null">
+            {{ busy === 'lookup' ? '正在查询…' : '查询' }}
+          </button>
+        </form>
+        <div class="role-filter" role="group" aria-label="平台角色筛选">
+          <span class="role-label">平台角色</span>
+          <label><input v-model="roleInput" type="checkbox" value="USER" :disabled="busy !== null" />普通用户</label>
+          <label><input v-model="roleInput" type="checkbox" value="VIP" :disabled="busy !== null" />会员</label>
+          <label><input v-model="roleInput" type="checkbox" value="ADMIN" :disabled="busy !== null" />管理员</label>
+        </div>
+      </div>
+      <form class="account-search" role="search" aria-label="按账号或昵称搜索用户" novalidate @submit.prevent="searchUsers">
+        <div class="field">
+          <label for="account-search">账号</label>
+          <input
+            id="account-search" v-model="accountInput" placeholder="输入账号或账号片段"
+            autocomplete="off" autocapitalize="none" spellcheck="false"
+            :readonly="busy !== null" :aria-invalid="Boolean(searchError) || undefined"
+            :aria-describedby="searchError ? 'account-search-error' : undefined"
+          />
+        </div>
+        <div class="field">
+          <label for="nickname-search">昵称</label>
+          <input
+            id="nickname-search" v-model="nicknameInput" placeholder="输入昵称或昵称片段"
+            autocomplete="off" spellcheck="false" maxlength="12"
+            :readonly="busy !== null" :aria-invalid="Boolean(searchError) || undefined"
+            :aria-describedby="searchError ? 'account-search-error' : undefined"
+          />
+        </div>
+        <div class="field">
+          <label for="created-start">创建时间起</label>
+          <input id="created-start" v-model="rangeInput.createdAtStart" type="date" :readonly="busy !== null" />
+        </div>
+        <div class="field">
+          <label for="created-end">创建时间止</label>
+          <input id="created-end" v-model="rangeInput.createdAtEnd" type="date" :readonly="busy !== null" />
+        </div>
+        <div class="actions">
+          <button class="secondary" type="submit" :disabled="busy !== null">搜索</button>
+          <button v-if="accountQuery || accountInput || nicknameQuery || nicknameInput || roleInput.length || roleQuery.length || rangeInput.createdAtStart || rangeInput.createdAtEnd || rangeQuery.createdAtStart || rangeQuery.createdAtEnd" class="secondary" type="button" :disabled="busy !== null" @click="resetSearch">重置</button>
+        </div>
       </form>
       <p v-if="searchError" id="account-search-error" class="error" role="alert">{{ searchError }}</p>
       <p v-if="lookupError" class="error" role="alert">{{ lookupError }}</p>
     </div>
-    <p v-if="accountQuery" class="search-summary">账号包含“{{ accountQuery }}”的搜索结果</p>
+    <p v-if="accountQuery || nicknameQuery" class="search-summary">
+      <template v-if="accountQuery && nicknameQuery">账号包含“{{ accountQuery }}”且昵称包含“{{ nicknameQuery }}”的搜索结果</template>
+      <template v-else-if="accountQuery">账号包含“{{ accountQuery }}”的搜索结果</template>
+      <template v-else>昵称包含“{{ nicknameQuery }}”的搜索结果</template>
+    </p>
 
     <AdminUserList
       :result="userPage"
       :current-account-id="currentAccountId"
+      :self-user="selfUser"
       :page-size="pageQuery.pageSize"
       :loading="busy === 'list'"
       :busy="busy !== null"
@@ -444,14 +541,15 @@ onBeforeUnmount(() => request?.abort())
           <fieldset :disabled="busy !== null || Boolean(detailsRestriction) || detailsNeedRefresh">
             <div class="field">
               <label for="managed-account">登录账号</label>
-              <input id="managed-account" v-model="draft.account" autocomplete="off" autocapitalize="none" spellcheck="false" required />
-              <p class="hint">3–16 个英文字母、数字或下划线，区分大小写。</p>
+              <input id="managed-account" v-model="draft.account" autocomplete="off" autocapitalize="none" spellcheck="false" required :disabled="Boolean(baseline)" />
+              <p v-if="!baseline" class="hint">3–16 位英文字母、数字或下划线，区分大小写。</p>
+              <p v-else class="hint">登录账号创建后不可修改。</p>
             </div>
             <p v-if="!baseline" class="hint">新账号的初始密码为 12345678。</p>
             <div class="field">
               <label for="managed-nickname">昵称</label>
-              <input id="managed-nickname" v-model="draft.displayName" autocomplete="off" />
-              <p class="hint">{{ baseline ? '最多 64 个字符，留空可清除昵称。' : '选填，最多 64 个字符。' }}</p>
+              <input id="managed-nickname" v-model="draft.displayName" autocomplete="off" maxlength="12" />
+              <p class="hint">{{ baseline ? '最多 12 个字符，留空可清除昵称。' : '选填，最多 12 个字符。' }}</p>
             </div>
             <div class="select-row">
               <div class="field">
@@ -471,22 +569,23 @@ onBeforeUnmount(() => request?.abort())
               </div>
             </div>
             <div class="field">
-              <label for="managed-expiry">VIP 到期时间（本地时间）</label>
+              <label for="managed-expiry">VIP 到期日期</label>
               <input
                 id="managed-expiry"
                 v-model="draft.vipExpiresAt"
-                placeholder="2026-12-01 18:00:00"
+                type="date"
                 aria-describedby="expiry-hint"
                 autocomplete="off"
-                spellcheck="false"
                 :required="draft.platformRole === 'VIP'"
+                @change="applyVipRoleWhenExpiryPicked"
                 @blur="restoreUnchangedExpiry"
               />
-              <p id="expiry-hint" class="hint">时区 {{ browserTimeZone }}，格式为 年-月-日 时:分:秒，可带秒小数。{{ baseline ? '留空保留原到期时间。' : 'VIP 必填，其他角色可留空。' }}</p>
+              <p id="expiry-hint" class="hint">选择到期日期后身份自动改为 VIP；到期当天仍然有效，次日起视为到期。{{ baseline ? '留空保留原到期日期。' : 'VIP 必填，其他角色可留空。' }}</p>
             </div>
+            <ProfileFieldsForm v-if="baseline" :draft="draft" prefix="managed" />
           </fieldset>
-          <p v-if="baseline" class="hint">以下时间按本地时区 {{ browserTimeZone }} 显示</p>
-          <dl v-if="baseline" class="audit-times" aria-label="账号时间（本地时区）">
+          <p v-if="baseline" class="hint">以下时间按记录原值显示</p>
+          <dl v-if="baseline" class="audit-times" aria-label="账号时间">
             <div>
               <dt>创建时间</dt>
               <dd><UserTime :value="baseline.times.createdAt" /></dd>
@@ -529,17 +628,41 @@ onBeforeUnmount(() => request?.abort())
 .page-description { margin-top: 9px; font-size: 0.8rem; color: #879181; }
 .create-user { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 0.85rem; }
 .create-user span { font-size: 21px; font-weight: 400; }
-.lookup-toolbar { display: flex; flex-wrap: wrap; gap: 18px 32px; margin-bottom: 20px; }
+.lookup-toolbar { display: grid; gap: 18px; margin-bottom: 20px; }
 .lookup-toolbar form { display: flex; align-items: center; gap: 12px; margin: 0; flex-wrap: wrap; }
-.lookup-toolbar input { width: 248px; max-width: 100%; background: #fff; font-size: 0.85rem; }
+.lookup-toolbar input { width: 220px; max-width: 100%; background: #fff; font-size: 0.85rem; }
+/* 用户 ID 查询与平台角色筛选同排，窄屏时自动折行。 */
+.lookup-row { display: flex; align-items: center; gap: 12px 32px; flex-wrap: wrap; }
+/* 平台角色筛选与用户 ID 查询并排展示。 */
+.role-filter { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.role-filter .role-label { color: #626f5e; font-weight: 500; font-size: 0.8rem; }
+.lookup-toolbar .role-filter label { display: inline-flex; align-items: center; gap: 6px; color: #3d4a3b; font-size: 0.85rem; font-weight: 400; }
+.lookup-toolbar .role-filter input { width: auto; margin: 0; accent-color: #193d31; }
+.lookup-toolbar .account-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 150px 150px auto;
+  align-items: end;
+  gap: 12px;
+  width: 100%;
+}
+.account-search .field { display: grid; gap: 6px; min-width: 0; }
+.account-search .field label { color: #626f5e; font-weight: 500; font-size: 0.8rem; }
+.account-search .field input { width: 100%; }
+.account-search .actions { display: flex; gap: 10px; }
+/* 窄屏下条件两列一组成行，按钮换到下一行仍保持整齐。 */
+@media (max-width: 900px) {
+  .lookup-toolbar .account-search { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .account-search .actions { grid-column: 1 / -1; }
+}
 .lookup-toolbar .lookup input { width: 150px; }
 .lookup-toolbar label { color: #626f5e; font-weight: 500; }
 .lookup-toolbar button { min-width: 76px; background: white; font-size: 0.85rem; }
 .lookup-toolbar .error { margin-top: 10px; }
 .search-summary { margin-bottom: 14px; color: #788572; font-size: 0.8rem; overflow-wrap: anywhere; }
-.user-drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(100%, 480px); height: 100%; max-height: 100svh; max-width: 100%; padding: 0; border: 0; background: #fff; color: #182925; box-shadow: -16px 0 60px #183d311a; }
-.user-drawer::backdrop { background: #18292566; }
-.user-drawer .details { position: relative; min-height: 100%; padding: 36px 32px; }
+/* 用户详情与编辑使用屏幕居中的独立卡片，替代原先贴右侧的抽屉。 */
+.user-drawer { position: fixed; inset: 0; margin: auto; width: min(calc(100% - 32px), 560px); height: auto; max-height: min(88svh, 920px); max-width: 100%; overflow: auto; overscroll-behavior: contain; padding: 0; border: 0; border-radius: 18px; background: #fff; color: #182925; box-shadow: 0 30px 80px #1829252e; }
+.user-drawer::backdrop { background: #18292559; backdrop-filter: blur(2px); }
+.user-drawer .details { position: relative; padding: 36px 32px; }
 .user-drawer .details-header { padding-bottom: 24px; border-bottom: 1px solid #e5e9e0; margin-right: 30px; }
 .close-drawer { position: absolute; top: 26px; right: 20px; border: 0; font-size: 28px; background: transparent; color: #7b8875; }
 .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; padding-top: 22px; border-top: 1px solid #e5e9e0; }
@@ -625,6 +748,15 @@ button {
   color: inherit;
   background: #fdfdf9;
   font: inherit;
+}
+
+/* 去掉原生贴边箭头，改用自定义 SVG 箭头，定位在离右边框 14px 处。 */
+select {
+  appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23626f5e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
 }
 
 :is(input, select, button, a):focus-visible {

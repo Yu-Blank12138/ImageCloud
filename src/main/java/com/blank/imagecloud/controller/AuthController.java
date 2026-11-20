@@ -7,9 +7,9 @@ import com.blank.imagecloud.models.dto.auth.LoginRequest;
 import com.blank.imagecloud.models.dto.auth.RegisterRequest;
 import com.blank.imagecloud.response.Response;
 import com.blank.imagecloud.service.AuthService;
-import com.blank.imagecloud.models.vo.LoginSessionVo;
-import com.blank.imagecloud.models.vo.LoginVo;
-import com.blank.imagecloud.models.vo.RegisterVo;
+import com.blank.imagecloud.models.vo.user.LoginSessionVo;
+import com.blank.imagecloud.models.vo.auth.LoginVo;
+import com.blank.imagecloud.models.vo.auth.RegisterVo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
@@ -51,9 +51,7 @@ public class AuthController {
      */
     @PostMapping(value = "/register", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "注册账号", description = "创建普通用户账号。")
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示成功，4000 表示请求格式错误，4001 表示字段校验失败，"
-                    + "4090 表示账号已被占用，4150 表示媒体类型不受支持，5000 表示服务端错误。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<RegisterVo> register(@Valid @RequestBody RegisterRequest request) {
         return ResultUtil.ok(authService.register(request));
     }
@@ -67,9 +65,7 @@ public class AuthController {
      */
     @PostMapping(value = "/login", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "账号登录", description = "校验账号和密码，向有效账号签发 RS256 JWT。")
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示成功，4000 表示请求格式错误，4001 表示字段校验失败，"
-                    + "4011 表示登录凭据错误，4150 表示媒体类型不受支持，5000 表示服务端错误。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<LoginVo> login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
         LoginVo result = authService.login(request);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
@@ -85,9 +81,7 @@ public class AuthController {
      */
     @GetMapping(value = "/session", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "获取当前登录态", security = @SecurityRequirement(name = BEARER_AUTH_SCHEME))
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示有有效登录态，4010 表示缺少令牌，"
-                    + "4012 表示令牌或账号失效，5030 表示暂无法确认撤销状态。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<LoginSessionVo> getSession(
             @Parameter(hidden = true) @RequestAttribute(AuthConstant.CURRENT_TOKEN_ATTRIBUTE) Jwt token,
             HttpServletResponse response) {
@@ -104,9 +98,7 @@ public class AuthController {
      */
     @PostMapping(value = "/logout", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "注销当前登录态", security = @SecurityRequirement(name = BEARER_AUTH_SCHEME))
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true,
-            description = "业务码 200 表示令牌已撤销，4010 表示缺少令牌，"
-                    + "4012 表示令牌已撤销、无效或过期，5030 表示暂无法完成撤销。")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, description = "业务码 200 表示成功，其余返回对应业务错误码。")
     public Response<Void> logout(
             @Parameter(hidden = true) @RequestAttribute(AuthConstant.CURRENT_TOKEN_ATTRIBUTE) Jwt token) {
         authService.logout(token);

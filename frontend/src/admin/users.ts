@@ -1,7 +1,9 @@
 import { bearerOptions, requestJson, requireData } from '../api/http'
 import type { LoginResult } from '../auth/api'
 
-export interface UserFields {
+import type { ProfileFields } from '../profile/fields'
+
+export interface UserFields extends ProfileFields {
   account: string
   displayName: string | null
   platformRole: LoginResult['user']['platformRole']
@@ -10,12 +12,15 @@ export interface UserFields {
 }
 
 export interface AdminUserDetails extends UserFields {
-  id: number | string
-  // 服务端维护的审计时间只用于展示，保留 UTC 原文及秒小数。
+  /** 用户主键，接口以字符串返回以避免雪花 ID 精度丢失。 */
+  id: string
+  // 服务端维护的审计时间只用于展示，保留无时区日期时间原文及秒小数。
   createdAt: string
   editTime: string | null
   updateTime: string
-  // 私有 COS 头像地址不参与表单，也不用于预览。
+  // 头像双地址允许从管理接口读取，不参与现有管理表单。
+  avatarUrl?: string | null
+  avatarOriginalUrl?: string | null
 }
 
 export interface AdminUserPage {
@@ -30,7 +35,7 @@ export interface DeletionTarget {
   account: string
 }
 
-export interface CreateUserRequest extends Partial<UserFields> {
+export interface CreateUserRequest extends Partial<Omit<UserFields, keyof ProfileFields>> {
   account: string
 }
 
@@ -61,16 +66,30 @@ export function lastUserPage({ total, pageSize }: AdminUserPage) {
   return Math.max(1, Math.ceil(total / pageSize))
 }
 
+export type UserPageFilters = {
+  account?: string
+  displayName?: string
+  platformRoles?: string[]
+  createdAtStart?: string
+  createdAtEnd?: string
+}
+
 export async function fetchUserPage(
   page: number,
   pageSize: number,
   token: string,
   signal: AbortSignal,
-  account = '',
+  filters: UserPageFilters = {},
 ) {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
-  // 账号条件随分页提交，空条件沿用全量列表。
-  if (account) query.set('account', account)
+  // 账号、昵称条件随分页提交，空条件沿用全量列表。
+  if (filters.account) query.set('account', filters.account)
+  if (filters.displayName) query.set('displayName', filters.displayName)
+  // 角色多选以重复查询参数提交，后端按集合命中任一角色匹配。
+  for (const role of filters.platformRoles ?? []) query.append('platformRoles', role)
+  for (const key of ['createdAtStart', 'createdAtEnd'] as const) {
+    if (filters[key]) query.set(key, filters[key])
+  }
   return requireData(await requestJson<AdminUserPage>(
     resource + '?' + query, bearerOptions(token, signal), errorMessages,
   ))

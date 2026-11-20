@@ -24,8 +24,8 @@ async function submit() {
     error.value = '请输入 8–32 位密码，不能全为空白。'
     return
   }
-  if (displayName.value.trim().length > 64) {
-    error.value = '昵称不能超过 64 位。'
+  if (displayName.value.trim().length > 12) {
+    error.value = '昵称不能超过 12 位。'
     return
   }
 
@@ -100,7 +100,7 @@ onBeforeUnmount(() => request?.abort())
           v-model="displayName"
           name="displayName"
           autocomplete="nickname"
-          placeholder="最多 64 位字符"
+          placeholder="最多 12 位字符"
           :readonly="pending"
         />
       </div>

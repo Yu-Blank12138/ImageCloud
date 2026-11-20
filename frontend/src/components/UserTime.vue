@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { browserTimeZone, toLocalDateTime } from '../utils/time'
+import { normalizeBusinessDateTime } from '../utils/time'
 
 const props = defineProps<{ value: string | null | undefined; emptyText?: string }>()
-// 时间按浏览器时区展示到秒，接口原值保留用于 datetime 属性。
-const local = computed(() => props.value ? toLocalDateTime(props.value)?.slice(0, 19) : null)
+// 业务时间按接口日历值及秒小数展示，原值同时保留在属性中，不附加时区。
+const local = computed(() => props.value ? normalizeBusinessDateTime(props.value) : null)
 </script>
 
 <template>
-  <time v-if="local && value" class="user-time" :datetime="value" :title="local.replace('T', ' ') + ' · ' + browserTimeZone">
+  <time v-if="local && value" class="user-time" :datetime="value" :title="value.replace('T', ' ')">
     <span>{{ local.slice(0, 10) }}</span>
     <span class="clock-time">{{ local.slice(11) }}</span>
   </time>

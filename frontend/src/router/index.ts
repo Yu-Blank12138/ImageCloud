@@ -23,9 +23,13 @@ const router = createRouter({
       component: AppLayout,
       meta: { requiresAuth: true },
       children: [
+        { path: 'profile/:id', name: 'public-profile', component: () => import('../views/ProfileView.vue'), meta: { title: '用户主页', section: '发现' } },
+        { path: 'profile', name: 'profile', component: () => import('../views/ProfileView.vue'), meta: { title: '个人主页', section: '我的账号' } },
+        { path: 'settings/account', name: 'account-settings', component: () => import('../views/AccountSettingsView.vue'), meta: { title: '账户设置', section: '我的账号' } },
         { path: 'workspace', name: 'workspace', component: WorkspaceView, meta: { title: '我的图库', section: '我的空间' } },
         { path: 'explore', name: 'explore', component: WorkspaceView, meta: { title: '公共图库', section: '发现' } },
         { path: 'teams', name: 'teams', component: WorkspaceView, meta: { title: '团队空间', section: '团队' } },
+        { path: 'admin/images', name: 'admin-images', component: () => import('../views/AdminImagesView.vue'), meta: { title: '图片管理', section: '管理' } },
         {
           path: 'admin/users',
           name: 'admin-users',
@@ -39,12 +43,12 @@ const router = createRouter({
 
 // 受保护页面先确认会话，管理接口仍会独立检查最新角色。
 router.beforeEach(async (to) => {
-  const adminPage = to.name === 'admin-users'
+  const adminPage = to.name === 'admin-users' || to.name === 'admin-images'
   if (!to.meta.requiresAuth) return
   const status = await ensureSession()
   if (status === 'anonymous') return { name: 'login', replace: true }
   if (status === 'unavailable') {
-    return { name: 'session-retry', state: { resumeRoute: String(to.name ?? 'workspace') }, replace: true }
+    return { name: 'session-retry', state: { resumeRoute: String(to.name ?? 'workspace'), resumeId: to.params.id }, replace: true }
   }
   if (adminPage && getActiveSession()?.user.platformRole !== 'ADMIN') {
     return { name: 'workspace', query: { notice: 'admin-only' }, replace: true }

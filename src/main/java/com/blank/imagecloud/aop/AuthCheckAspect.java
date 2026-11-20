@@ -6,15 +6,14 @@ import com.blank.imagecloud.common.ThrowUtils;
 import com.blank.imagecloud.constant.PlatformRole;
 import com.blank.imagecloud.constant.UserConstant;
 import com.blank.imagecloud.exception.ErrorCode;
-import com.blank.imagecloud.models.vo.entity.UserAccount;
+import com.blank.imagecloud.models.entity.UserAccount;
 import com.blank.imagecloud.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.LocalDate;
 
 /**
  * 在标注了权限要求的接口方法执行前验证当前用户。
@@ -53,7 +52,7 @@ public class AuthCheckAspect {
         return switch (requiredRole) {
             case USER -> admin || vip || UserConstant.ROLE_USER.equals(role);
             case VIP -> admin || (vip && user.getVipExpiresAt() != null
-                    && user.getVipExpiresAt().isAfter(LocalDateTime.now(ZoneOffset.UTC)));
+                    && !user.getVipExpiresAt().isBefore(LocalDate.now()));
             case ADMIN -> admin;
         };
     }

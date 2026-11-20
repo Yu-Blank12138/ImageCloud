@@ -8,14 +8,20 @@ spring:
     username: "${imagecloud.mysql.username}"
     password: "${imagecloud.mysql.password}"
     hikari:
-      # 数据库会话与应用服务器写入的时间统一使用 UTC。
-      connection-init-sql: "SET time_zone = '+00:00'"
+      # JDBC 会话跟随应用本地时区，使数据库默认时间与 LocalDateTime.now() 一致。
+      data-source-properties:
+        connectionTimeZone: LOCAL
+        forceConnectionTimeZoneToSession: "true"
   data:
     redis:
       host: "${imagecloud.redis.host}"
       port: "${imagecloud.redis.port}"
       database: "${imagecloud.redis.database}"
       password: "${imagecloud.redis.password}"
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
 
 mybatis-plus:
   mapper-locations: "classpath*:/mapper/**/*.xml"
@@ -33,6 +39,8 @@ mybatis-plus:
 
 logging:
   level:
+    # 正常接口调用和业务结果在应用默认日志中可见。
+    com.blank.imagecloud: INFO
     # 用户 SQL 可能携带密码哈希和账号信息。
     com.blank.imagecloud.mapper.UserAccountMapper: "OFF"
 
@@ -40,6 +48,7 @@ cos:
   secret-id: "${imagecloud.cos.secret-id}"
   secret-key: "${imagecloud.cos.secret-key}"
   region: "${imagecloud.cos.region}"
+  bucket: "${imagecloud.cos.bucket}"
 
 imagecloud:
   auth:

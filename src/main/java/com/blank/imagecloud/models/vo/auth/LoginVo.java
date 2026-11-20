@@ -1,5 +1,6 @@
-package com.blank.imagecloud.models.vo;
+package com.blank.imagecloud.models.vo.auth;
 
+import com.blank.imagecloud.models.vo.user.LoginUserVo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;

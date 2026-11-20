@@ -4,7 +4,7 @@ import com.blank.imagecloud.config.JwtProperties;
 import com.blank.imagecloud.constant.UserConstant;
 import com.blank.imagecloud.mapper.UserAccountMapper;
 import com.blank.imagecloud.models.event.AccessTokenRevokedEvent;
-import com.blank.imagecloud.models.vo.entity.UserAccount;
+import com.blank.imagecloud.models.entity.UserAccount;
 import com.blank.imagecloud.utils.JwtUtil;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

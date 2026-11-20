@@ -5,6 +5,7 @@
 - Connect directly to the development MySQL and Redis endpoints configured in `application-dev.yaml`.
 - Add example configuration files only when explicitly requested.
 - Append every new `CREATE TABLE` statement to the repository-root `src/main/resources/schema.sql` before executing it.
+- Keep `src/main/resources/schema.sql` as the final `CREATE TABLE` definitions. Fold later table changes into the corresponding definitions instead of retaining `ALTER TABLE` history.
 - Modify code only when the user explicitly asks for code changes. When the user asks a question, answer it without editing code.
 - Prefer implementing new features through existing extension points or new files. Keep changes to existing code limited to what the feature requires.
 - Respect task and module ownership. Modify only code assigned to the current agent, and preserve changes owned by other contributors.
@@ -14,9 +15,11 @@
 ## Architecture and dependencies
 
 - Use [design.md](design.md) as the source of truth for the technology stack, module responsibilities, and data flows. Update it when an approved change alters those decisions.
-- Group backend packages by technical layer. Place controllers and database entities directly in `com.blank.imagecloud.controller` and `com.blank.imagecloud.entity`. Group DTOs by business capability when needed.
+- Group backend packages by technical layer. Place controllers in `com.blank.imagecloud.controller` and database entities in `com.blank.imagecloud.models.entity`. Preserve the existing `models` hierarchy.
 - Declare business service interfaces in `com.blank.imagecloud.service`. Place their implementation classes in `com.blank.imagecloud.service.impl` and inject services by their interfaces.
-- Place API request DTOs in `com.blank.imagecloud.dto`, endpoint-specific result classes in `com.blank.imagecloud.vo`, and shared response wrappers in `com.blank.imagecloud.response`.
+- Place API request DTOs in `com.blank.imagecloud.models.dto`, reuse existing model subpackages for response/result classes, and keep shared response wrappers in `com.blank.imagecloud.response`.
+- Place response/result VO classes, including image upload results, in `com.blank.imagecloud.models.vo` and its business subpackages. Reserve `com.blank.imagecloud.models.entity` for database table entities.
+- Reuse the user's existing package layout and preserve manual file moves. Do not create top-level `entity`, `dto`, or `vo` packages or relocate existing classes unless the user explicitly requests that package change.
 - Use regular classes for Java DTOs and other data carrier types.
 - Keep reusable JWT operations in the static utility class `com.blank.imagecloud.utils.JwtUtil`. Pass the signer and configuration to its methods.
 - Use the owning module's service interface for cross-module calls and keep its persistence and cloud SDK details internal.
@@ -27,7 +30,7 @@
 
 ## Database transactions
 
-- Generate creation and edit timestamps in the application server using UTC with millisecond precision. Initialize the edit timestamp to the creation timestamp for new accounts. User self-edits refresh the edit timestamp. MySQL maintains the persisted update timestamp through DEFAULT CURRENT_TIMESTAMP(3) and ON UPDATE CURRENT_TIMESTAMP(3). Preserve existing application code that sets update timestamps. Exclude that field from generated INSERT and UPDATE assignments so MySQL supplies the stored value. Write responses may use an application-generated current update time without rereading the database, and a small difference from the stored MySQL time is acceptable. Administrator and system edits preserve the edit timestamp. Logical deletion uses MyBatis-Plus deleteById and lets MySQL maintain the update timestamp.
+- Store business dates and times directly as LocalDateTime and MySQL DATETIME(3), without UTC conversions. MySQL generates created_at through DEFAULT CURRENT_TIMESTAMP(3), initializes edit_time from created_at, and maintains update_time through DEFAULT CURRENT_TIMESTAMP(3) and ON UPDATE CURRENT_TIMESTAMP(3). Exclude created_at and update_time from generated INSERT and UPDATE assignments. User and administrator edit statements explicitly set edit_time = CURRENT_TIMESTAMP(3), using the same database clock as creation and update timestamps. Logical deletion uses MyBatis-Plus deleteById and lets MySQL maintain update_time. JWT protocol timestamps and token expiry calculations retain their required instant semantics.
 
 - Use database autocommit by default for a single INSERT, UPDATE, or DELETE statement.
 - Use ordinary queries and autocommit for low-concurrency user and profile updates. Reserve explicit SELECT FOR UPDATE locks for inventory, monetary operations, and other critical consistency-sensitive writes that require them.
@@ -43,8 +46,13 @@
 - Document all new and changed REST endpoints with OpenAPI 3 annotations for the project's Knife4j documentation. Use `@Tag` on controllers, `@Operation` on endpoint methods, and `@Schema` on request DTOs and response VOs. Use `@Parameter` and `@ApiResponse` to describe endpoint inputs and status codes where applicable.
 - Keep documentation consistent with the actual request and response contract. Verify endpoint documentation in `/v3/api-docs` and use `/doc.html` to view it in Knife4j.
 
+## Verification
+
+- Do not create or modify test files unless the user explicitly requests tests. Verify changes with existing checks, compilation, and temporary validation scripts as appropriate.
+
 ## Comments and diagnostics
 
+- Add necessary logs for every new or changed API. Reuse the shared API logging aspect for request method, path, operator ID, business response code, and duration. Record meaningful write results in the owning service. Log expected failures at WARN and unexpected failures with stack traces at ERROR through the global exception handler. Keep logs visible at the configured application level. Never log passwords, password hashes, JWTs, Authorization headers, full request or response bodies, or signed URLs.
 - Use `ThrowUtils.throwIf` for conditional business exceptions and `ThrowUtils.throwException` when the current branch has already established failure.
 - Write comments intended for agents in English.
 - When adding or changing code, include concise developer-facing comments that explain its purpose, important behavior, and relevant constraints.

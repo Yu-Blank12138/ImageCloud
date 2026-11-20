@@ -1,3 +1,4 @@
+import { shallowRef, triggerRef } from 'vue'
 import { fetchSession, isInvalidSessionError, revokeSession, type LoginResult } from './api'
 
 type LoginUser = LoginResult['user']
@@ -20,7 +21,7 @@ interface LocalSession {
 
 const storageKey = 'imagecloud.auth.session'
 const stored = restoreSession()
-let currentSession: LocalSession | null = stored ? { data: stored, verified: false } : null
+const currentSession = shallowRef<LocalSession | null>(stored ? { data: stored, verified: false } : null)
 
 function restoreSession(): Session | null {
   try {
@@ -42,7 +43,7 @@ function persistSession(data: Session) {
 }
 
 function clearSession() {
-  currentSession = null
+  currentSession.value = null
   try {
     sessionStorage.removeItem(storageKey)
   } catch {
@@ -62,30 +63,30 @@ export function startSession(result: LoginResult) {
 
   // 刚登录的结果可以直接用于当前页面，刷新后再向服务端确认。
   const data = { ...result, expiresAt: Date.now() + result.expiresIn * 1000 }
-  currentSession = { data, verified: true }
+  currentSession.value = { data, verified: true }
   persistSession(data)
 }
 
 export function getActiveSession() {
-  if (!currentSession?.verified) return null
-  if (currentSession.data.expiresAt <= Date.now()) {
+  if (!currentSession.value?.verified) return null
+  if (currentSession.value.data.expiresAt <= Date.now()) {
     clearSession()
     return null
   }
-  return currentSession.data
+  return currentSession.value.data
 }
 
 export function invalidateSession(accessToken: string) {
   // 受保护接口的失效响应只清理该请求使用的会话。
-  if (currentSession?.data.accessToken !== accessToken) return false
+  if (currentSession.value?.data.accessToken !== accessToken) return false
   clearSession()
   return true
 }
 
-export async function ensureSession(): Promise<SessionStatus> {
-  const session = currentSession
+export async function ensureSession(refresh = false): Promise<SessionStatus> {
+  const session = currentSession.value
   if (!session) return 'anonymous'
-  if (session.verified) return getActiveSession() ? 'active' : 'anonymous'
+  if (session.verified && !refresh) return getActiveSession() ? 'active' : 'anonymous'
 
   // 同一令牌的并发导航共用验证请求，失败后允许重新发起。
   session.verification ??= verifyStoredSession(session).finally(() => {
@@ -98,7 +99,7 @@ async function verifyStoredSession(session: LocalSession): Promise<SessionStatus
   try {
     const result = await fetchSession(session.data.accessToken)
     // 注销或重新登录后，旧请求不能把已替换的会话写回存储。
-    if (currentSession !== session) return ensureSession()
+    if (currentSession.value !== session) return ensureSession()
 
     const expiresAt = Date.parse(result.expiresAt)
     if (!Number.isFinite(expiresAt) || !result.user) return 'unavailable'
@@ -109,10 +110,11 @@ async function verifyStoredSession(session: LocalSession): Promise<SessionStatus
 
     session.data = { ...session.data, user: result.user, expiresAt }
     session.verified = true
+    triggerRef(currentSession)
     persistSession(session.data)
     return 'active'
   } catch (error) {
-    if (currentSession !== session) return ensureSession()
+    if (currentSession.value !== session) return ensureSession()
     if (!isInvalidSessionError(error)) return 'unavailable'
     clearSession()
     return 'anonymous'
@@ -120,7 +122,7 @@ async function verifyStoredSession(session: LocalSession): Promise<SessionStatus
 }
 
 export async function logoutSession(): Promise<boolean> {
-  const session = currentSession
+  const session = currentSession.value
   if (!session) return true
 
   // 暂时性失败保留会话，结束本次请求后用户可再次退出。
@@ -134,9 +136,9 @@ async function logoutCurrentSession(session: LocalSession): Promise<boolean> {
   try {
     await revokeSession(session.data.accessToken)
   } catch (error) {
-    if (currentSession === session && !isInvalidSessionError(error)) throw error
+    if (currentSession.value === session && !isInvalidSessionError(error)) throw error
   }
 
-  if (currentSession === session) clearSession()
-  return currentSession === null
+  if (currentSession.value === session) clearSession()
+  return currentSession.value === null
 }

@@ -10,14 +10,14 @@ import com.blank.imagecloud.mapper.UserAccountMapper;
 import com.blank.imagecloud.models.dto.auth.LoginRequest;
 import com.blank.imagecloud.models.dto.auth.RegisterRequest;
 import com.blank.imagecloud.models.event.AccessTokenRevokedEvent;
-import com.blank.imagecloud.models.vo.entity.UserAccount;
+import com.blank.imagecloud.models.entity.UserAccount;
 import com.blank.imagecloud.service.AuthService;
 import com.blank.imagecloud.service.UserService;
 import com.blank.imagecloud.utils.JwtUtil;
-import com.blank.imagecloud.models.vo.LoginUserVo;
-import com.blank.imagecloud.models.vo.LoginSessionVo;
-import com.blank.imagecloud.models.vo.LoginVo;
-import com.blank.imagecloud.models.vo.RegisterVo;
+import com.blank.imagecloud.models.vo.user.LoginUserVo;
+import com.blank.imagecloud.models.vo.user.LoginSessionVo;
+import com.blank.imagecloud.models.vo.auth.LoginVo;
+import com.blank.imagecloud.models.vo.auth.RegisterVo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataAccessException;
@@ -29,8 +29,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -104,7 +104,7 @@ public class AuthServiceImpl implements AuthService {
 
         Instant now = Instant.now();
         Jwt token = JwtUtil.issueAccessToken(jwtEncoder, jwtProperties, account.getId(), now);
-        LoginUserVo user = buildLoginUser(account, now);
+        LoginUserVo user = buildLoginUser(account, LocalDateTime.now());
         // 记录登录结果，凭据和令牌内容不写入日志。
         log.info("User logged in: userId={}, account={}", account.getId(), account.getAccount());
         return new LoginVo(token.getTokenValue(), "Bearer", JwtUtil.expiresInSeconds(token), user);
@@ -122,7 +122,7 @@ public class AuthServiceImpl implements AuthService {
         UserAccount account = userService.findAccountForAuthentication(userId);
         ThrowUtils.throwIf(account == null || !UserConstant.STATUS_ACTIVE.equals(account.getStatus()),
                 ErrorCode.INVALID_ACCESS_TOKEN);
-        return new LoginSessionVo(buildLoginUser(account, Instant.now()), expiresAt);
+        return new LoginSessionVo(buildLoginUser(account, LocalDateTime.now()), expiresAt);
     }
 
     /**
@@ -169,22 +169,15 @@ public class AuthServiceImpl implements AuthService {
      * @param now 用于判断 VIP 权益是否到期的当前时间
      * @return 账号资料、当前 VIP 状态与数据库时间字段
      */
-    private static LoginUserVo buildLoginUser(UserAccount account, Instant now) {
-        Instant vipExpiresAt = toUtcInstant(account.getVipExpiresAt());
+    private static LoginUserVo buildLoginUser(UserAccount account, LocalDateTime now) {
+        LocalDate vipExpiresAt = account.getVipExpiresAt();
+        // 到期日期当天仍然有效，次日起视为已过期。
         boolean vipActive = UserConstant.ROLE_VIP.equals(account.getPlatformRole())
-                && vipExpiresAt != null && vipExpiresAt.isAfter(now);
+                && vipExpiresAt != null && !vipExpiresAt.isBefore(now.toLocalDate());
         return new LoginUserVo(account.getId(), account.getAccount(), account.getDisplayName(),
                 account.getPlatformRole(), vipExpiresAt, vipActive,
-                toUtcInstant(account.getEditTime()), toUtcInstant(account.getUpdateTime()));
+                account.getEditTime(), account.getUpdateTime(),
+                account.getGender(), account.getBio(), account.getEmail(), account.getPhoneNumber(), account.getBirthMonth());
     }
 
-    /**
-     * 将按 UTC 存储的数据库时间转换为带时区语义的时间点。
-     *
-     * @param value 数据库读取的时间，可为空
-     * @return 对应的 UTC 时间点，数据库值为空时返回 null
-     */
-    private static Instant toUtcInstant(LocalDateTime value) {
-        return value == null ? null : value.toInstant(ZoneOffset.UTC);
-    }
 }

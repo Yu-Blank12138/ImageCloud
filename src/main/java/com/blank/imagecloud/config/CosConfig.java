@@ -37,6 +37,11 @@ public class CosConfig {
     private String region;
 
     /**
+     * 上传目标存储桶，包含 APPID 后缀，例如 imagecloud-1250000000。
+     */
+    private String bucket;
+
+    /**
      * 使用配置中的密钥和存储桶地域创建 HTTPS 客户端，容器关闭时释放连接池。
      *
      * @return 可复用的 COS 客户端单例

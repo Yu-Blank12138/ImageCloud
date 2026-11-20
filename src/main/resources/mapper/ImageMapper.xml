@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.blank.imagecloud.mapper.ImageMapper">
+
+    <!--
+        每个上传者只保留最新审核通过的若干张图片，供用户搜索预览使用。
+        audit_status = 1 表示审核通过，is_delete = 0 表示未逻辑删除。
+    -->
+    <select id="selectLatestApprovedThumbnails"
+            resultType="com.blank.imagecloud.models.dto.image.UploaderThumbnailRow">
+        SELECT uploader_id, thumbnail_object_key
+        FROM (
+            SELECT uploader_id, thumbnail_object_key,
+                   ROW_NUMBER() OVER (PARTITION BY uploader_id ORDER BY created_at DESC, id DESC) AS rn
+            FROM image
+            WHERE is_delete = 0
+              AND audit_status = 1
+              AND thumbnail_object_key IS NOT NULL
+              AND thumbnail_object_key &lt;&gt; ''
+              AND uploader_id IN
+              <foreach collection="uploaderIds" item="uploaderId" open="(" separator="," close=")">
+                  #{uploaderId}
+              </foreach>
+        ) ranked
+        WHERE rn &lt;= #{limitPerUser}
+        ORDER BY uploader_id, rn
+    </select>
+
+</mapper>

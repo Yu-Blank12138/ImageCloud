@@ -9,7 +9,7 @@ public final class UserConstant {
     public static final int PASSWORD_MAX_LENGTH = 32;
     /** 管理员创建账号时使用的初始密码，由密码编码器生成哈希后保存。 */
     public static final String DEFAULT_PASSWORD = "12345678";
-    public static final int DISPLAY_NAME_MAX_LENGTH = 64;
+    public static final int DISPLAY_NAME_MAX_LENGTH = 12;
 
     public static final String ROLE_USER = "USER";
     public static final String ROLE_VIP = "VIP";
@@ -19,6 +19,16 @@ public final class UserConstant {
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_DISABLED = "DISABLED";
     public static final String STATUS_PATTERN = STATUS_ACTIVE + "|" + STATUS_DISABLED;
+
+    public static final int BIO_MAX_LENGTH = 128;
+    public static final int EMAIL_MAX_LENGTH = 254;
+    /**
+     * 邮箱须为 本地部分@域名.后缀 的标准结构，后缀至少两个字母。
+     * 相比宽松的 @Email，可拒绝 a@b、a@b.c 以及非 ASCII 本地部分，与前端校验保持一致。
+     */
+    public static final String EMAIL_PATTERN = "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}$";
+    public static final String PHONE_NUMBER_PATTERN = "^$|^\\+?[0-9]{6,20}$";
+    public static final String BIRTH_MONTH_PATTERN = "^$|^[0-9]{4}-(0[1-9]|1[0-2])$";
 
     public static final int NOT_DELETED = 0;
 

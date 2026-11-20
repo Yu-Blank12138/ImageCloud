@@ -1,6 +1,6 @@
 package com.blank.imagecloud;
 
-import com.blank.imagecloud.models.vo.entity.UserAccount;
+import com.blank.imagecloud.models.entity.UserAccount;
 import com.blank.imagecloud.mapper.UserAccountMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

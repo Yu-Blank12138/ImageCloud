@@ -1,31 +1,35 @@
-export const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-
-export function toLocalDateTime(value: string): string | null {
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return null
-
-  // 日期和偏移按浏览器时区计算，秒小数沿用接口原文，避免丢失精度。
-  const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/.exec(value)?.[1]
-  const year = String(date.getFullYear()).padStart(4, '0')
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  const seconds = String(date.getSeconds()).padStart(2, '0')
-  return [year, month, day].join('-') + 'T' + [hours, minutes, seconds].join(':') +
-    (fraction ? '.' + fraction : '')
+// 业务时间是无时区的日历值，不通过 Date 解析，避免偏移和夏令时改变历史值。
+export function normalizeBusinessDateTime(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(\.\d{1,9})?)?$/.exec(value.trim())
+  if (!match) return null
+  const [, year, month, day, hour, minute, second = '00', fraction = ''] = match
+  const y = Number(year), m = Number(month), d = Number(day)
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  if (m < 1 || m > 12 || d < 1 || d > days[m - 1]! || Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return null
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${fraction}`
 }
 
-export function toUtcDateTime(value: string): string | null {
-  const normalized = value.replace(' ', 'T')
-  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?$/.exec(normalized)
-  if (!match) return null
-  const localSeconds = match[1]!
-  const date = new Date(localSeconds)
-  if (!Number.isFinite(date.getTime())) return null
+// 比较时仅忽略小数尾零，提交仍保留原始精度。
+export function businessTimeKey(value: string): string | null {
+  const normalized = normalizeBusinessDateTime(value)
+  if (!normalized) return null
+  return normalized.replace(/\.(\d*?)0+$/, (_, fraction: string) => fraction ? '.' + fraction : '')
+}
 
-  // 回转检查拒绝不存在的日期及夏令时跳过的本地时间。
-  const utcSeconds = date.toISOString().slice(0, 19)
-  if (toLocalDateTime(utcSeconds + 'Z') !== localSeconds) return null
-  return utcSeconds + (match[2] ? '.' + match[2] : '') + 'Z'
+// VIP 到期日期只到日，校验 YYYY-MM-DD 的日历有效性后按原格式返回。
+export function normalizeBusinessDate(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim())
+  if (!match) return null
+  const [, year, month, day] = match
+  const y = Number(year), m = Number(month), d = Number(day)
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  if (m < 1 || m > 12 || d < 1 || d > days[m - 1]!) return null
+  return `${year}-${month}-${day}`
+}
+
+export function localCurrentMonth(): string {
+  const now = new Date()
+  return String(now.getFullYear()).padStart(4, '0') + '-' + String(now.getMonth() + 1).padStart(2, '0')
 }

@@ -6,7 +6,7 @@ import com.blank.imagecloud.config.JwtProperties;
 import com.blank.imagecloud.constant.PlatformRole;
 import com.blank.imagecloud.constant.UserConstant;
 import com.blank.imagecloud.mapper.UserAccountMapper;
-import com.blank.imagecloud.models.vo.entity.UserAccount;
+import com.blank.imagecloud.models.entity.UserAccount;
 import com.blank.imagecloud.response.Response;
 import com.blank.imagecloud.utils.JwtUtil;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 
 import static org.mockito.Mockito.verify;
@@ -74,13 +74,13 @@ class AuthCheckTests {
         user.setId(USER_ID);
         user.setStatus(UserConstant.STATUS_ACTIVE);
         user.setPlatformRole(UserConstant.ROLE_VIP);
-        user.setVipExpiresAt(LocalDateTime.now(ZoneOffset.UTC).plusHours(1));
+        user.setVipExpiresAt(LocalDate.now(ZoneOffset.UTC).plusDays(1));
         when(userAccountMapper.selectById(USER_ID)).thenReturn(user);
         String authorization = "Bearer " + token.getTokenValue();
 
         mvc.perform(get("/api/test/auth-check/vip").header(HttpHeaders.AUTHORIZATION, authorization))
                 .andExpect(jsonPath("$.code").value(200));
-        user.setVipExpiresAt(LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1));
+        user.setVipExpiresAt(LocalDate.now(ZoneOffset.UTC).minusDays(1));
         mvc.perform(get("/api/test/auth-check/vip").header(HttpHeaders.AUTHORIZATION, authorization))
                 .andExpect(jsonPath("$.code").value(4030));
         user.setStatus(UserConstant.STATUS_DISABLED);
@@ -123,8 +123,7 @@ class AuthCheckTests {
         account.setPlatformRole(role);
         account.setStatus(UserConstant.STATUS_ACTIVE);
         if (UserConstant.ROLE_VIP.equals(role)) {
-            Instant expiry = vipActive ? now.plusSeconds(3600) : now.minusSeconds(3600);
-            account.setVipExpiresAt(LocalDateTime.ofInstant(expiry, ZoneOffset.UTC));
+            account.setVipExpiresAt(LocalDate.now(ZoneOffset.UTC).plusDays(vipActive ? 1 : -1));
         }
         when(userAccountMapper.selectById(USER_ID)).thenReturn(account);
         when(redisTemplate.hasKey(REVOKED_KEY_PREFIX + token.getId())).thenReturn(false);
